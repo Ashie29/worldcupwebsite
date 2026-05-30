@@ -762,21 +762,20 @@ async function upsertBonusResult(rid, qid, answer) {
 
 async function toggleLock(rid) {
   const current = S.roundSettings[rid]?.locked || false;
-  // Update local state immediately (optimistic)
   if (!S.roundSettings[rid]) S.roundSettings[rid] = {};
   S.roundSettings[rid].locked = !current;
-  // Persist to Supabase only for real auth users (not PIN admin)
-  if (S.user?.id !== 'admin_pin') {
-    try {
-      await sb.from('round_settings').upsert(
-        { round_id: rid, locked: !current },
-        { onConflict: 'round_id' }
-      );
-    } catch (e) {
-      // Revert on failure
-      S.roundSettings[rid].locked = current;
-      console.error('Lock toggle failed:', e);
-    }
+  render(); // optimistic UI update
+  try {
+    const { error } = await sb.from('round_settings').upsert(
+      { round_id: rid, locked: !current },
+      { onConflict: 'round_id' }
+    );
+    if (error) throw error;
+  } catch (e) {
+    // Revert and show error
+    S.roundSettings[rid].locked = current;
+    render();
+    alert(`Lock failed: ${e.message || e}\n\nMake sure the round_settings table exists in Supabase and allows writes.`);
   }
 }
 
