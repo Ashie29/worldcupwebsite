@@ -179,11 +179,139 @@ a{color:var(--gold);text-decoration:none;}
   font-size:40px;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
+/* ── Hamburger & Sidebar ──────────────────────────────────────── */
+.hamburger{background:transparent;border:none;cursor:pointer;
+  padding:6px 8px;border-radius:8px;display:flex;flex-direction:column;
+  gap:4px;flex-shrink:0;margin-right:4px;}
+.hamburger span{display:block;width:20px;height:2px;background:#aaa;border-radius:1px;}
+.sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);
+  z-index:200;opacity:0;pointer-events:none;transition:opacity 0.25s;}
+.sidebar-overlay.open{opacity:1;pointer-events:auto;}
+.sidebar{position:fixed;top:0;left:0;bottom:0;width:280px;
+  background:#0a1628;border-right:1px solid rgba(255,255,255,0.1);
+  z-index:201;transform:translateX(-100%);transition:transform 0.3s ease;
+  display:flex;flex-direction:column;overflow-y:auto;}
+.sidebar.open{transform:translateX(0);}
+.sidebar-header{padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,0.07);
+  display:flex;justify-content:space-between;align-items:center;flex-shrink:0;}
+.sidebar-close{background:transparent;border:none;color:#555;cursor:pointer;font-size:22px;line-height:1;}
+.sidebar-section{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.07);}
+.sidebar-section-label{color:#555;font-size:10px;font-weight:700;letter-spacing:1.2px;
+  text-transform:uppercase;margin:0 0 10px;}
+.sidebar-nav-btn{width:100%;display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-radius:10px;background:transparent;
+  border:1px solid rgba(255,255,255,0.08);color:var(--text);
+  cursor:pointer;font-size:14px;margin-bottom:6px;font-family:Arial,sans-serif;
+  transition:all .15s;text-align:left;}
+.sidebar-nav-btn:hover{background:rgba(255,255,255,0.06);border-color:var(--gold);}
+.sidebar-nav-btn.active{background:rgba(255,215,0,0.1);border-color:rgba(255,215,0,0.3);color:var(--gold);}
+
+/* ── Dashboard ───────────────────────────────────────────────── */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:12px;margin-bottom:20px;}
+.stat-card{background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;}
+.stat-icon{font-size:22px;margin-bottom:6px;}
+.stat-value{font-size:20px;font-weight:700;margin-bottom:2px;}
+.stat-label{font-size:12px;color:var(--muted);}
+.mini-bar-wrap{height:6px;background:rgba(255,255,255,0.07);border-radius:3px;flex:1;overflow:hidden;}
+.mini-bar{height:100%;border-radius:3px;background:var(--gold);}
+.player-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;
+  padding:4px 6px;border-radius:8px;transition:background .15s;}
+.highlight-card{background:var(--card);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;}
+.highlight-label{color:var(--muted);font-size:12px;margin-bottom:8px;}
+.highlight-name{color:var(--text);font-weight:700;font-size:14px;margin-bottom:2px;}
+.highlight-stat{color:var(--gold);font-size:12px;}
+.rounds-table{width:100%;border-collapse:collapse;font-size:12px;}
+.rounds-table th{color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--border2);
+  text-align:center;white-space:nowrap;}
+.rounds-table th:first-child{text-align:left;}
+.rounds-table td{padding:7px 8px;border-bottom:1px solid var(--border2);text-align:center;}
+.rounds-table td:first-child{text-align:left;color:var(--text);}
+.rounds-table tr:hover td{background:rgba(255,255,255,0.04);}
+
+/* ── Bracket ─────────────────────────────────────────────────── */
+.bracket-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:8px;margin-bottom:4px;}
+.bracket-match{background:rgba(255,255,255,0.04);border:1px solid var(--border2);
+  border-radius:10px;padding:8px 12px;font-size:12px;}
+.bracket-match.has-result{border-color:rgba(102,187,106,0.35);}
+.bracket-team{display:flex;justify-content:space-between;align-items:center;padding:3px 0;}
+.bracket-team.winner{color:#66bb6a;font-weight:700;}
+.bracket-team.loser{color:var(--muted);}
+.bracket-vs{color:var(--faint);font-size:10px;text-align:center;padding:1px 0;}
+.bracket-section{margin-bottom:16px;}
+.bracket-section-title{color:#ff7043;font-size:13px;font-weight:700;margin-bottom:10px;}
+
+/* ── Light mode overrides ─────────────────────────────────────── */
+body.light-mode{
+  --bg:#eef1f5;--card:#ffffff;--card2:#f5f7fa;
+  --gold:#b8940a;--gold2:#8a6d00;
+  --text:#1a2a40;--muted:#4a5568;--faint:#9aa5b1;
+  --border:rgba(184,148,10,0.2);--border2:rgba(0,0,0,0.1);
+  --green:#2e7d32;--red:#c62828;--blue:#1565c0;--purple:#6a1b9a;
+}
+body.light-mode .nav{background:#fff;border-color:rgba(184,148,10,0.18);}
+body.light-mode .nav-signout{border-color:rgba(0,0,0,0.15);color:var(--muted);}
+body.light-mode .sidebar{background:#fff;border-color:rgba(0,0,0,0.1);}
+body.light-mode .sidebar-overlay{background:rgba(0,0,0,0.4);}
+body.light-mode .auth-card{background:#fff;border-color:rgba(184,148,10,0.2);}
+body.light-mode .score-in,
+body.light-mode .input{background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,0.15);color:var(--text);}
+body.light-mode .team-btn{background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,0.12);color:var(--muted);}
+body.light-mode .admin-select,
+body.light-mode .admin-score{background:#f0f2f5;border-color:rgba(255,112,67,.35);color:var(--text);}
+body.light-mode .spin{color:#b8940a;}
+
+/* ── Dark mode toggle button ──────────────────────────────────── */
+.theme-toggle-btn{width:100%;display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.1);color:var(--muted);cursor:pointer;
+  font-size:13px;font-family:Arial,sans-serif;transition:all .15s;}
+body.light-mode .theme-toggle-btn{background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,0.12);}
+.theme-toggle-btn:hover{border-color:var(--gold);}
+.toggle-track{width:44px;height:24px;border-radius:12px;position:relative;
+  flex-shrink:0;transition:background 0.3s;background:#333;}
+body.light-mode .toggle-track{background:var(--gold);}
+.toggle-thumb{position:absolute;top:2px;width:20px;height:20px;border-radius:50%;
+  background:#fff;transition:left 0.25s;box-shadow:0 1px 4px rgba(0,0,0,0.4);}
+.toggle-thumb.on{left:22px;}
+.toggle-thumb.off{left:2px;}
+
+/* ── Achievement badges ───────────────────────────────────────── */
+.ach-icons{display:flex;gap:2px;flex-wrap:wrap;}
+.ach-icon{font-size:14px;cursor:default;}
+.ach-badge{display:inline-flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 12px;border-radius:12px;cursor:default;}
+.ach-badge-label{font-size:11px;font-weight:700;}
+
+/* ── Player profile modal ─────────────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);
+  display:flex;align-items:center;justify-content:center;z-index:400;padding:20px;}
+.modal-box{background:#0a1628;border-radius:20px;border:1px solid rgba(255,255,255,0.12);
+  width:100%;max-width:440px;max-height:85vh;overflow-y:auto;}
+body.light-mode .modal-box{background:#fff;border-color:rgba(0,0,0,0.1);}
+.modal-header{background:linear-gradient(160deg,#0d1f3c,#1a2e50);
+  padding:28px 24px 20px;border-radius:20px 20px 0 0;text-align:center;position:relative;}
+body.light-mode .modal-header{background:linear-gradient(160deg,#dde4f0,#c8d3e8);}
+.modal-close{position:absolute;top:14px;right:16px;background:transparent;border:none;
+  color:#555;cursor:pointer;font-size:22px;line-height:1;}
+.modal-avatar{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:36px;font-weight:700;margin:0 auto 12px;
+  background:linear-gradient(135deg,var(--blue),var(--purple));}
+.modal-stat-row{display:flex;gap:10px;margin-bottom:16px;}
+.modal-stat{text-align:center;flex:1;padding:12px 8px;
+  background:rgba(255,255,255,0.04);border-radius:10px;}
+body.light-mode .modal-stat{background:rgba(0,0,0,0.04);}
+.modal-stat-val{font-size:22px;font-weight:700;}
+.modal-stat-lbl{font-size:11px;color:var(--muted);margin-top:2px;}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media(max-width:600px){
   .page{padding:16px 12px 60px;}
   .lb-bar-wrap{display:none;}
   .match-row{gap:5px;}
+  .stat-grid{grid-template-columns:1fr 1fr;}
+  .highlights-grid{grid-template-columns:1fr 1fr;}
 }
 </style>
 </head>
@@ -220,6 +348,17 @@ const FLAG = {
   "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦",
 };
 const F = t => FLAG[t] || '⚽';
+
+const ACHIEVEMENTS = {
+  perfectRound: { icon:'⚡', label:'Perfect Round',  color:'#ff7043', desc:'Got every match pick correct in a single round' },
+  oracle:       { icon:'🔮', label:'Oracle',         color:'#ce93d8', desc:'Answered 3+ bonus questions correctly in a single round' },
+  sharpshooter: { icon:'🎯', label:'Sharpshooter',   color:'#42a5f5', desc:'Predicted 5+ exact scores in a round' },
+  highRoller:   { icon:'💰', label:'High Roller',    color:'#66bb6a', desc:'Won a knockout wager at maximum stake' },
+  centuryClub:  { icon:'💯', label:'Century Club',   color:'#FFD700', desc:'Scored 50+ points total' },
+  bonusHunter:  { icon:'🎁', label:'Bonus Hunter',   color:'#ec407a', desc:'Answered every bonus question correctly in a round' },
+  scoreMaster:  { icon:'🔢', label:'Score Master',   color:'#26c6da', desc:'Predicted 3+ exact scores in a single match week' },
+  wagerKing:    { icon:'👑', label:'Wager King',     color:'#ab47bc', desc:'Earned 15+ points from wagers in a single round' },
+};
 
 const ROUNDS = {
   gs1:{label:"Group Stage – Round 1",id:"gs1",knockout:false,matches:[
@@ -315,7 +454,8 @@ const ROUNDS = {
     {id:"b7_2",text:"Will any semi-final produce a red card?",pts:4,opts:["Yes – SF1","Yes – SF2","Yes – Both","No"]},
   ]},
   final:{label:"Final",id:"final",knockout:true,matches:[
-    {id:"finalm1",home:"Finalist 1",away:"Finalist 2"},
+    {id:"finalm1",home:"Finalist 1",away:"Finalist 2",label:"Final"},
+    {id:"finalm2",home:"SF Loser 1",away:"SF Loser 2",label:"3rd Place"},
   ],bonusQuestions:[
     {id:"b8_1",text:"Will the Final go to extra time or penalties?",pts:5,opts:["Win in 90 min","Extra time","Penalties"]},
     {id:"b8_2",text:"Who scores the first goal in the Final?",pts:5,opts:["Midfielder","Forward","Defender","Own goal"]},
@@ -328,7 +468,7 @@ const ROUNDS = {
 // ════════════════════════════════════════════════════════════════
 const S = {
   user: null, profile: null,
-  page: 'picks', authMode: 'login',
+  page: 'dashboard', authMode: 'login',
   activeRound: 'gs1',
   // data maps
   picks: {},         // uid → rid → mid → {winner,score_home,score_away}
@@ -338,33 +478,70 @@ const S = {
   roundSettings: {}, // rid → {locked,deadline}
   profiles: [],      // all profile rows
   loading: false,
+  darkMode: true,
+  selectedPlayer: null,
+  adminTab: 'results',
+  adminQFilter: 'All',
+  customBonusQs: {},  // rid → [{id,text,pts,opts}]
+  multipliers: {},    // rid → {match: number, bonus: number}
 };
 
 // ════════════════════════════════════════════════════════════════
-// 5. SCORING
+// 5. CUSTOM QUESTIONS & MULTIPLIERS
+// ════════════════════════════════════════════════════════════════
+function getActiveQuestions(rid) {
+  return S.customBonusQs[rid] || ROUNDS[rid]?.bonusQuestions || [];
+}
+
+function getMultipliers(rid) {
+  return { match: S.multipliers[rid]?.match ?? 1, bonus: S.multipliers[rid]?.bonus ?? 1 };
+}
+
+function saveCustomQuestions() {
+  localStorage.setItem('wc26:customBonusQs', JSON.stringify(S.customBonusQs));
+}
+
+function saveMultipliers() {
+  localStorage.setItem('wc26:multipliers', JSON.stringify(S.multipliers));
+}
+
+function loadLocalSettings() {
+  try {
+    const cq = localStorage.getItem('wc26:customBonusQs');
+    if (cq) S.customBonusQs = JSON.parse(cq);
+  } catch {}
+  try {
+    const ml = localStorage.getItem('wc26:multipliers');
+    if (ml) S.multipliers = JSON.parse(ml);
+  } catch {}
+}
+
+// ════════════════════════════════════════════════════════════════
+// 6. SCORING
 // ════════════════════════════════════════════════════════════════
 function calcScore(uid) {
   let total = 0, correctPicks = 0, exactScores = 0;
   for (const round of Object.values(ROUNDS)) {
     const rid = round.id;
+    const { match: mMult, bonus: bMult } = getMultipliers(rid);
     for (const m of round.matches) {
       const pick   = S.picks[uid]?.[rid]?.[m.id];
       const result = S.results[rid]?.[m.id];
       if (!pick || !result || !result.winner || !pick.winner) continue;
       if (pick.winner === result.winner) {
-        total += 2; correctPicks++;
+        total += 2 * mMult; correctPicks++;
         const sh = String(pick.score_home), sa = String(pick.score_away);
         const rh = String(result.score_home), ra = String(result.score_away);
-        if (sh !== '' && sh === rh && sa === ra) { total++; exactScores++; }
+        if (sh !== '' && sh === rh && sa === ra) { total += 1 * mMult; exactScores++; }
       }
     }
-    for (const bq of round.bonusQuestions) {
+    for (const bq of getActiveQuestions(rid)) {
       const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
       const correct = S.bonusResults[rid]?.[bq.id];
       if (!ans || !correct || !correct.answer || !ans.answer) continue;
       if (ans.answer === correct.answer) {
         const wager = round.knockout ? (Number(ans.wager) || 0) : 0;
-        total += bq.pts + wager;
+        total += (bq.pts * bMult) + wager;
       } else if (round.knockout && Number(ans.wager) > 0) {
         total -= Number(ans.wager);
       }
@@ -479,39 +656,229 @@ async function toggleLock(rid) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// 7. RENDERERS
+// 7. THEME
+// ════════════════════════════════════════════════════════════════
+function initTheme() {
+  const saved = localStorage.getItem('wc26:theme');
+  S.darkMode = saved !== 'light';
+  applyTheme();
+}
+
+function applyTheme() {
+  document.body.classList.toggle('light-mode', !S.darkMode);
+}
+
+function toggleTheme() {
+  S.darkMode = !S.darkMode;
+  localStorage.setItem('wc26:theme', S.darkMode ? 'dark' : 'light');
+  applyTheme();
+  // Re-render sidebar in place without full page render
+  const trackEl = document.getElementById('toggle-track');
+  const thumbEl = document.getElementById('toggle-thumb');
+  const labelEl = document.getElementById('theme-label');
+  const iconEl  = document.getElementById('theme-icon');
+  if (trackEl) {
+    trackEl.style.background = S.darkMode ? '#333' : 'var(--gold)';
+    thumbEl.className = 'toggle-thumb ' + (S.darkMode ? 'on' : 'off');
+    labelEl.textContent = S.darkMode ? 'Dark Mode' : 'Light Mode';
+    iconEl.textContent  = S.darkMode ? '🌙' : '☀️';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 8. ACHIEVEMENT HELPERS
+// ════════════════════════════════════════════════════════════════
+async function awardAchievement(profileId, type) {
+  const prof = S.profiles.find(p => p.id === profileId);
+  if (!prof) return;
+  const existing = prof.achievements || [];
+  const updated  = [...existing, { type, awardedAt: new Date().toISOString() }];
+  await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  prof.achievements = updated;
+}
+
+async function removeAchievement(profileId, index) {
+  const prof = S.profiles.find(p => p.id === profileId);
+  if (!prof) return;
+  const updated = (prof.achievements || []).filter((_, i) => i !== index);
+  await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  prof.achievements = updated;
+}
+
+function showPlayerModal(profile) {
+  S.selectedPlayer = profile;
+  const existing = document.getElementById('player-modal');
+  if (existing) existing.remove();
+
+  const isAdmin  = S.profile?.is_admin;
+  const getName  = p => p?.nickname || p?.name || '—';
+  const initials = n => (n||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const { total, correctPicks, exactScores } = calcScore(profile.id);
+  const lb   = getLeaderboard();
+  const rank = (lb.find(p => p.id === profile.id)?.rank) ?? '—';
+  const medal = r => r===1?'🥇':r===2?'🥈':r===3?'🥉':`#${r}`;
+  const rankColor = rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':'#aaa';
+  const achs = profile.achievements || [];
+
+  const achBadges = achs.length
+    ? achs.map((a, i) => {
+        const def = ACHIEVEMENTS[a.type];
+        if (!def) return '';
+        return `<div class="ach-badge" style="background:${def.color}22;border:1px solid ${def.color}55" title="${def.desc}">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:18px">${def.icon}</span>
+            <span class="ach-badge-label" style="color:${def.color}">${def.label}</span>
+            ${isAdmin ? `<button data-remove-ach="${i}" style="background:transparent;border:none;color:rgba(255,80,80,0.7);cursor:pointer;font-size:14px;font-weight:bold;line-height:1;padding:0 2px">×</button>` : ''}
+          </div>
+        </div>`;
+      }).join('')
+    : '<p style="color:var(--muted);font-size:13px;font-style:italic">No achievements yet — keep playing!</p>';
+
+  const awardSelect = isAdmin ? `
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border2)">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">⚙️ Award Achievement</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="ach-select" class="input" style="flex:1;padding:8px 10px;font-size:13px">
+          <option value="">— Select achievement —</option>
+          ${Object.entries(ACHIEVEMENTS).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
+        </select>
+        <button id="ach-award-btn" class="btn btn-gold btn-sm">Award</button>
+      </div>
+    </div>` : '';
+
+  const el = document.createElement('div');
+  el.id = 'player-modal';
+  el.className = 'modal-overlay';
+  el.innerHTML = `
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <button class="modal-close" id="modal-close-btn">✕</button>
+        <div class="modal-avatar">${initials(getName(profile))}</div>
+        <h2 style="color:#fff;margin:0 0 2px;font-size:20px">${getName(profile)}</h2>
+        ${profile.nickname ? `<p style="color:#666;font-size:12px;margin:0 0 8px">${profile.name}</p>` : ''}
+        <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.07);padding:5px 14px;border-radius:20px">
+          <span style="font-size:${rank<=3?20:14}px;color:${rankColor}">${typeof rank==='number'&&rank<=3?['🥇','🥈','🥉'][rank-1]:'#'+rank}</span>
+          <span style="color:${rankColor};font-size:13px;font-weight:bold">${typeof rank==='number'&&rank<=3?['Champion','Runner-up','3rd Place'][rank-1]:'Rank '+rank}</span>
+        </div>
+      </div>
+      <div style="padding:16px 20px 20px">
+        <div class="modal-stat-row">
+          <div class="modal-stat"><div class="modal-stat-val" style="color:#4CAF50">${total}</div><div class="modal-stat-lbl">Points</div></div>
+          <div class="modal-stat"><div class="modal-stat-val" style="color:#90caf9">${correctPicks}</div><div class="modal-stat-lbl">Correct Picks</div></div>
+          <div class="modal-stat"><div class="modal-stat-val" style="color:#ce93d8">${exactScores}</div><div class="modal-stat-lbl">Exact Scores</div></div>
+        </div>
+        <h4 style="color:var(--gold);margin:0 0 10px;font-size:13px">🏅 Achievements</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">${achBadges}</div>
+        ${awardSelect}
+      </div>
+    </div>`;
+
+  el.onclick = () => { el.remove(); S.selectedPlayer = null; };
+  document.body.appendChild(el);
+
+  document.getElementById('modal-close-btn').onclick = () => { el.remove(); S.selectedPlayer = null; };
+
+  el.querySelectorAll('[data-remove-ach]').forEach(btn => {
+    btn.onclick = async e => {
+      e.stopPropagation();
+      await removeAchievement(profile.id, Number(btn.dataset.removeAch));
+      el.remove();
+      showPlayerModal(S.profiles.find(p => p.id === profile.id) || profile);
+    };
+  });
+
+  if (isAdmin) {
+    document.getElementById('ach-award-btn').onclick = async () => {
+      const type = document.getElementById('ach-select').value;
+      if (!type) return;
+      await awardAchievement(profile.id, type);
+      el.remove();
+      showPlayerModal(S.profiles.find(p => p.id === profile.id) || profile);
+    };
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// 9. RENDERERS
 // ════════════════════════════════════════════════════════════════
 
 // ── Auth ─────────────────────────────────────────────────────────
 function renderAuth() {
-  const isLogin = S.authMode === 'login';
+  const isLogin   = S.authMode === 'login';
+  const isAdmin   = S.authMode === 'admin';
+  const isPlayer  = !isAdmin;
+
   document.getElementById('app').innerHTML = `
     <div class="auth-wrap">
       <div class="auth-card">
         <div class="auth-logo">⚽</div>
         <div class="auth-title">WC 2026 Fantasy Pool</div>
-        <div class="auth-sub">${isLogin ? 'Sign in to make your picks' : 'Create your account'}</div>
-        <div id="auth-msg"></div>
-        ${!isLogin ? `
-          <div class="field"><label class="label">Display name</label>
-            <input class="input" id="a-name" placeholder="e.g. Alex" autocomplete="off"></div>` : ''}
-        <div class="field"><label class="label">Email address</label>
-          <input class="input" id="a-email" type="email" placeholder="you@example.com" autocomplete="email"></div>
-        <div class="field"><label class="label">Password</label>
-          <input class="input" id="a-pw" type="password" placeholder="${isLogin ? 'Your password' : 'At least 6 characters'}" autocomplete="${isLogin ? 'current-password' : 'new-password'}"></div>
-        <button class="btn btn-gold" id="a-submit" style="width:100%;margin-top:4px">
-          ${isLogin ? 'Sign In →' : 'Create Account →'}
-        </button>
-        <div class="auth-switch">
-          ${isLogin ? "Don't have an account? <span id='a-toggle'>Register here</span>"
-                    : "Already registered? <span id='a-toggle'>Sign in</span>"}
+
+        <div style="display:flex;gap:8px;margin-bottom:20px">
+          <button id="tab-player" style="flex:1;padding:9px;border-radius:10px;border:2px solid ${isPlayer?'var(--gold)':'var(--faint)'};
+            background:${isPlayer?'rgba(255,215,0,0.1)':'transparent'};color:${isPlayer?'var(--gold)':'var(--muted)'};
+            cursor:pointer;font-size:13px;font-weight:700;font-family:Arial,sans-serif">Player</button>
+          <button id="tab-admin" style="flex:1;padding:9px;border-radius:10px;border:2px solid ${isAdmin?'#ff7043':'var(--faint)'};
+            background:${isAdmin?'rgba(255,112,67,0.1)':'transparent'};color:${isAdmin?'#ff7043':'var(--muted)'};
+            cursor:pointer;font-size:13px;font-weight:700;font-family:Arial,sans-serif">Admin</button>
         </div>
+
+        <div id="auth-msg"></div>
+
+        ${isAdmin ? `
+          <div class="auth-sub" style="margin-bottom:16px">Enter the admin PIN to access the control panel</div>
+          <div class="field"><label class="label">Admin PIN</label>
+            <input class="input" id="a-pin" type="password" placeholder="••••••••" autocomplete="off"></div>
+          <button class="btn" id="a-submit" style="width:100%;margin-top:4px;background:#ff7043;color:#fff">
+            Enter as Admin →
+          </button>
+        ` : `
+          <div class="auth-sub" style="margin-bottom:16px">${isLogin ? 'Sign in to make your picks' : 'Create your account'}</div>
+          ${!isLogin ? `
+            <div class="field"><label class="label">Display name</label>
+              <input class="input" id="a-name" placeholder="e.g. Alex" autocomplete="off"></div>` : ''}
+          <div class="field"><label class="label">Email address</label>
+            <input class="input" id="a-email" type="email" placeholder="you@example.com" autocomplete="email"></div>
+          <div class="field"><label class="label">Password</label>
+            <input class="input" id="a-pw" type="password" placeholder="${isLogin ? 'Your password' : 'At least 6 characters'}" autocomplete="${isLogin ? 'current-password' : 'new-password'}"></div>
+          <button class="btn btn-gold" id="a-submit" style="width:100%;margin-top:4px">
+            ${isLogin ? 'Sign In →' : 'Create Account →'}
+          </button>
+          <div class="auth-switch">
+            ${isLogin ? "Don't have an account? <span id='a-toggle'>Register here</span>"
+                      : "Already registered? <span id='a-toggle'>Sign in</span>"}
+          </div>
+        `}
       </div>
     </div>`;
 
-  document.getElementById('a-toggle').onclick = () => { S.authMode = isLogin ? 'register' : 'login'; renderAuth(); };
-  document.getElementById('a-pw').onkeydown = e => { if (e.key === 'Enter') doAuth(); };
-  document.getElementById('a-submit').onclick = doAuth;
+  document.getElementById('tab-player').onclick = () => {
+    if (S.authMode === 'admin') S.authMode = 'login';
+    renderAuth();
+  };
+  document.getElementById('tab-admin').onclick = () => { S.authMode = 'admin'; renderAuth(); };
+
+  if (isAdmin) {
+    document.getElementById('a-pin').onkeydown = e => { if (e.key === 'Enter') doAdminPin(); };
+    document.getElementById('a-submit').onclick = doAdminPin;
+  } else {
+    document.getElementById('a-toggle').onclick = () => { S.authMode = isLogin ? 'register' : 'login'; renderAuth(); };
+    document.getElementById('a-pw').onkeydown = e => { if (e.key === 'Enter') doAuth(); };
+    document.getElementById('a-submit').onclick = doAuth;
+  }
+}
+
+async function doAdminPin() {
+  const pin   = document.getElementById('a-pin').value;
+  const msgEl = document.getElementById('auth-msg');
+  const btn   = document.getElementById('a-submit');
+  if (pin !== 'admin2026') { showMsg(msgEl, 'Wrong PIN.', 'err'); btn.style.background = '#c0392b'; setTimeout(() => btn.style.background = '#ff7043', 500); return; }
+  btn.disabled = true; btn.textContent = 'Loading…';
+  S.user    = { id: 'admin_pin' };
+  S.profile = { is_admin: true, name: 'Admin', nickname: 'Admin' };
+  await loadAllData();
+  S.page = 'admin';
+  render();
 }
 
 async function doAuth() {
@@ -531,7 +898,6 @@ async function doAuth() {
     if (!name) { showMsg(msgEl, 'Please enter a display name.', 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
     const { data, error } = await sb.auth.signUp({ email, password: pw });
     if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
-    // Create profile row
     await sb.from('profiles').insert({ id: data.user.id, name });
     showMsg(msgEl, 'Account created! Signing you in…', 'ok');
   }
@@ -542,13 +908,46 @@ function renderShell(content) {
   const isAdmin = S.profile?.is_admin;
   const dispName = S.profile?.nickname || S.profile?.name || S.user?.email;
   const tabs = [
+    { id:'dashboard', label:'Dashboard' },
     { id:'picks', label:'My Picks' },
+    { id:'bracket', label:'Bracket' },
     { id:'leaderboard', label:'Leaderboard' },
     ...(isAdmin ? [{ id:'admin', label:'⚙️ Admin' }] : []),
     { id:'rules', label:'Rules' },
   ];
   document.getElementById('app').innerHTML = `
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span style="color:var(--gold);font-weight:bold;font-size:16px">⚽&nbsp; WC26 Menu</span>
+        <button class="sidebar-close" id="sidebar-close">✕</button>
+      </div>
+      <div class="sidebar-section">
+        <p class="sidebar-section-label">Navigate</p>
+        ${tabs.map(t => `<button class="sidebar-nav-btn ${S.page===t.id?'active':''}" data-page="${t.id}">${t.label}</button>`).join('')}
+      </div>
+      <div class="sidebar-section">
+        <p class="sidebar-section-label">Display</p>
+        <button class="theme-toggle-btn" id="theme-toggle-btn">
+          <span style="display:flex;align-items:center;gap:8px">
+            <span id="theme-icon">${S.darkMode ? '🌙' : '☀️'}</span>
+            <span id="theme-label">${S.darkMode ? 'Dark Mode' : 'Light Mode'}</span>
+          </span>
+          <div class="toggle-track" id="toggle-track" style="background:${S.darkMode ? '#333' : 'var(--gold)'}">
+            <div class="toggle-thumb ${S.darkMode ? 'on' : 'off'}" id="toggle-thumb"></div>
+          </div>
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <p class="sidebar-section-label">Account</p>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:10px">${dispName}</div>
+        <button class="sidebar-nav-btn" id="sidebar-signout">Sign Out</button>
+      </div>
+    </div>
     <nav class="nav">
+      <button class="hamburger" id="hamburger-btn">
+        <span></span><span></span><span></span>
+      </button>
       <span class="nav-brand">⚽ WC26</span>
       ${tabs.map(t => `<button class="nav-tab ${S.page===t.id?'active':''}" data-page="${t.id}">${t.label}</button>`).join('')}
       <div class="nav-right">
@@ -558,14 +957,40 @@ function renderShell(content) {
     </nav>
     <div class="page">${content}</div>`;
 
+  // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(btn => {
     btn.onclick = () => { S.page = btn.dataset.page; render(); };
   });
-  document.getElementById('signout-btn').onclick = async () => {
+  // Sidebar nav buttons
+  document.querySelectorAll('.sidebar-nav-btn[data-page]').forEach(btn => {
+    btn.onclick = () => { S.page = btn.dataset.page; closeSidebar(); render(); };
+  });
+
+  // Hamburger open/close
+  document.getElementById('hamburger-btn').onclick = openSidebar;
+  document.getElementById('sidebar-close').onclick = closeSidebar;
+  document.getElementById('sidebar-overlay').onclick = closeSidebar;
+
+  // Sign out buttons
+  const doSignOut = async () => {
     await sb.auth.signOut();
-    S.user = null; S.profile = null; S.page = 'picks';
+    S.user = null; S.profile = null; S.page = 'dashboard';
     renderAuth();
   };
+  document.getElementById('signout-btn').onclick = doSignOut;
+  document.getElementById('sidebar-signout').onclick = doSignOut;
+  document.getElementById('theme-toggle-btn').onclick = toggleTheme;
+}
+
+function openSidebar() {
+  document.getElementById('sidebar-overlay').classList.add('open');
+  document.getElementById('sidebar').classList.add('open');
+}
+function closeSidebar() {
+  const overlay = document.getElementById('sidebar-overlay');
+  const sidebar = document.getElementById('sidebar');
+  if (overlay) overlay.classList.remove('open');
+  if (sidebar) sidebar.classList.remove('open');
 }
 
 // ── Picks page ───────────────────────────────────────────────────
@@ -575,12 +1000,13 @@ function renderPicks() {
   const uid      = S.user.id;
   const locked   = S.roundSettings[rid]?.locked || false;
   const isAdmin  = S.profile?.is_admin;
-  const readOnly = locked && !isAdmin;
+  const isPinAdmin = S.user?.id === 'admin_pin';
+  const readOnly = (locked && !isAdmin) || isAdmin || isPinAdmin;
 
   const pillsHtml = Object.values(ROUNDS).map(r => {
     const lk = S.roundSettings[r.id]?.locked;
     return `<button class="pill ${lk?'locked':''} ${S.activeRound===r.id?'active':''}" data-r="${r.id}">
-      ${r.label.replace('Group Stage – ','')} ${lk?'🔒':''}
+      ${r.label.replace('Group Stage – Round ','Group Stage ')} ${lk?'🔒':''}
     </button>`;
   }).join('');
 
@@ -626,7 +1052,7 @@ function renderPicks() {
     </div>`;
   }).join('');
 
-  const bonusHtml = round.bonusQuestions.map(bq => {
+  const bonusHtml = getActiveQuestions(rid).map(bq => {
     const ans   = S.bonusAnswers[uid]?.[rid]?.[bq.id] || {};
     const bres  = S.bonusResults[rid]?.[bq.id]?.answer || '';
     const wager = ans.wager || 0;
@@ -657,7 +1083,7 @@ function renderPicks() {
 
   return `
     <div class="page-title">My Picks</div>
-    ${readOnly ? `<div class="locked-notice">🔒 This round is locked — picks are read-only.</div>` : ''}
+    ${isAdmin || isPinAdmin ? `<div class="notice">👁 Admin view — picks are read-only. Admins cannot submit picks.</div>` : readOnly ? `<div class="locked-notice">🔒 This round is locked — picks are read-only.</div>` : ''}
     <div class="pill-row">${pillsHtml}</div>
     <div class="card">
       <div class="card-title">${round.label}</div>
@@ -675,11 +1101,19 @@ function renderLeaderboard() {
   const lb = getLeaderboard();
   const maxPts = lb[0]?.total || 1;
   const medal = r => ['🥇','🥈','🥉'][r-1] || `#${r}`;
+  const achIcons = p => (p.achievements || []).slice(0,4)
+    .map(a => ACHIEVEMENTS[a.type] ? `<span class="ach-icon" title="${ACHIEVEMENTS[a.type].label}">${ACHIEVEMENTS[a.type].icon}</span>` : '')
+    .join('');
   const rows = lb.map((p,i) => {
     const barW = Math.round((p.total/maxPts)*100);
-    return `<tr class="${i===0?'gold-row':''}">
+    return `<tr class="${i===0?'gold-row':''}" data-uid="${p.id}" style="cursor:pointer">
       <td><span class="rank-icon">${medal(p.rank)}</span></td>
-      <td>${p.nickname||p.name}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>${p.nickname||p.name}</span>
+          <span class="ach-icons">${achIcons(p)}</span>
+        </div>
+      </td>
       <td style="color:#90caf9">${p.correctPicks}</td>
       <td style="color:#ce93d8">${p.exactScores}</td>
       <td><span class="lb-bar-wrap"><span class="lb-bar" style="width:${barW}%"></span></span></td>
@@ -687,7 +1121,7 @@ function renderLeaderboard() {
     </tr>`;
   }).join('');
 
-  return `
+  const html = `
     <div class="page-title">🏆 Leaderboard</div>
     <div class="card">
       <table class="lb-table">
@@ -696,73 +1130,530 @@ function renderLeaderboard() {
         </tr></thead>
         <tbody>${rows||'<tr><td colspan="6" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
       </table>
-      <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores</p>
+      <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores · Click a player to view profile</p>
     </div>`;
+
+  // Attach row click handlers after render via requestAnimationFrame
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.lb-table tbody tr[data-uid]').forEach(row => {
+      row.onclick = () => {
+        const prof = S.profiles.find(p => p.id === row.dataset.uid);
+        if (prof) showPlayerModal(prof);
+      };
+    });
+  });
+
+  return html;
 }
 
 // ── Admin page ────────────────────────────────────────────────────
 function renderAdmin() {
-  const round   = ROUNDS[S.activeRound];
-  const rid     = round.id;
-  const locked  = S.roundSettings[rid]?.locked || false;
+  const adminTab = S.adminTab || 'results';
 
-  const pillsHtml = Object.values(ROUNDS).map(r => {
-    const lk = S.roundSettings[r.id]?.locked;
-    return `<button class="pill ${lk?'locked':''} ${S.activeRound===r.id?'active':''}" data-r="${r.id}">
-      ${r.label.replace('Group Stage – ','')} ${lk?'🔒':''}
-    </button>`;
-  }).join('');
+  const ADMIN_TABS = [
+    { id:'results',   label:'📝 Results'  },
+    { id:'lock',      label:'🔒 Lock'     },
+    { id:'picks',     label:'👁 Picks'    },
+    { id:'questions', label:'❓ Bank'     },
+    { id:'players',   label:'👥 Players'  },
+  ];
 
-  const matchResultsHtml = round.matches.map(m => {
-    const res = S.results[rid]?.[m.id] || {};
-    const opts = [m.home, ...(!round.knockout?['Draw']:[]), m.away];
-    const selOpts = opts.map(o => `<option value="${o}" ${res.winner===o?'selected':''}>${o}</option>`).join('');
-    return `<div class="admin-match-row">
-      <span class="admin-match-label">${F(m.home)||'⚽'} ${m.home} vs ${F(m.away)||'⚽'} ${m.away}</span>
-      <select class="admin-select" data-action="result-winner" data-rid="${rid}" data-mid="${m.id}">
-        <option value="">– Winner –</option>${selOpts}
-      </select>
-      <input class="admin-score" type="number" min="0" placeholder="H" value="${res.score_home??''}"
-        data-action="result-sh" data-rid="${rid}" data-mid="${m.id}">
-      <span class="vs">–</span>
-      <input class="admin-score" type="number" min="0" placeholder="A" value="${res.score_away??''}"
-        data-action="result-sa" data-rid="${rid}" data-mid="${m.id}">
+  const tabsHtml = ADMIN_TABS.map(t =>
+    `<button class="pill ${adminTab===t.id?'active':''}" data-admin-tab="${t.id}">${t.label}</button>`
+  ).join('');
+
+  const roundLabel = r => r.label.replace('Group Stage – Round ', 'Group Stage ');
+
+  let tabContent = '';
+
+  // ── Results tab ──────────────────────────────────────────────
+  if (adminTab === 'results') {
+    const round = ROUNDS[S.activeRound];
+    const rid   = round.id;
+
+    const pillsHtml = Object.values(ROUNDS).map(r => {
+      const lk = S.roundSettings[r.id]?.locked;
+      return `<button class="pill ${lk?'locked':''} ${S.activeRound===r.id?'active':''}" data-r="${r.id}">
+        ${roundLabel(r)} ${lk?'🔒':''}
+      </button>`;
+    }).join('');
+
+    const matchResultsHtml = round.matches.map(m => {
+      const res  = S.results[rid]?.[m.id] || {};
+      const opts = [m.home, ...(!round.knockout?['Draw']:[]), m.away];
+      const selOpts = opts.map(o => `<option value="${o}" ${res.winner===o?'selected':''}>${o}</option>`).join('');
+      const matchLabel = m.label ? `<span style="font-size:10px;color:#ff7043;margin-left:6px">[${m.label}]</span>` : '';
+      return `<div class="admin-match-row">
+        <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+        <select class="admin-select" data-action="result-winner" data-rid="${rid}" data-mid="${m.id}">
+          <option value="">– Winner –</option>${selOpts}
+        </select>
+        <input class="admin-score" type="number" min="0" placeholder="H" value="${res.score_home??''}"
+          data-action="result-sh" data-rid="${rid}" data-mid="${m.id}">
+        <span class="vs">–</span>
+        <input class="admin-score" type="number" min="0" placeholder="A" value="${res.score_away??''}"
+          data-action="result-sa" data-rid="${rid}" data-mid="${m.id}">
+      </div>`;
+    }).join('');
+
+    const bonusResultsHtml = getActiveQuestions(rid).map(bq => {
+      const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
+      const opts = bq.opts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
+      return `<div class="admin-match-row">
+        <span class="admin-match-label" style="font-size:11px">${bq.text}</span>
+        <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
+          <option value="">– Answer –</option>${opts}
+        </select>
+      </div>`;
+    }).join('');
+
+    const { match: mMult, bonus: bMult } = getMultipliers(rid);
+    tabContent = `
+      <div class="pill-row">${pillsHtml}</div>
+      <div class="card" style="border-color:rgba(100,150,255,0.2);margin-bottom:12px">
+        <div class="card-title" style="color:#90caf9">✖ Points Multipliers — ${roundLabel(round)}</div>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Multiply base points for this round. Knockout wagers are never multiplied.</p>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Match picks (×)</label>
+            <input id="mult-match" class="admin-score" type="number" min="0.5" max="10" step="0.5"
+              value="${mMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Bonus questions (×)</label>
+            <input id="mult-bonus" class="admin-score" type="number" min="0.5" max="10" step="0.5"
+              value="${bMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+          </div>
+          <button class="btn btn-gold btn-sm" id="save-mult-btn" data-rid="${rid}">Save multipliers</button>
+        </div>
+        <p style="color:var(--faint);font-size:10px;margin-top:10px">
+          Current: correct pick = ${2*mMult} pts · exact score = ${1*mMult} pts · bonus base pts × ${bMult}
+        </p>
+      </div>
+      <div class="card">
+        <div class="card-title">${roundLabel(round)} — Match Results</div>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Set actual match outcomes to score all players automatically.</p>
+        ${matchResultsHtml}
+      </div>
+      <div class="card" style="border-color:rgba(255,215,0,0.2)">
+        <div class="card-title">⭐ Bonus Question Answers</div>
+        ${bonusResultsHtml}
+      </div>`;
+  }
+
+  // ── Lock tab ─────────────────────────────────────────────────
+  if (adminTab === 'lock') {
+    const lockRows = Object.values(ROUNDS).map(r => {
+      const locked = S.roundSettings[r.id]?.locked || false;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;
+        padding:12px 14px;border-radius:10px;margin-bottom:8px;
+        background:rgba(255,255,255,0.03);
+        border:1px solid ${locked?'rgba(255,112,67,0.4)':'var(--border2)'}">
+        <span style="font-size:14px;color:var(--text)">${roundLabel(r)}</span>
+        <button class="btn btn-sm ${locked?'btn-danger':'btn-outline'}" data-action="toggle-lock" data-rid="${r.id}">
+          ${locked ? '🔒 Locked' : '🔓 Unlocked'}
+        </button>
+      </div>`;
+    }).join('');
+
+    tabContent = `
+      <div class="card" style="border-color:rgba(255,112,67,0.3)">
+        <div class="card-title" style="color:#ff7043">🔒 Lock / Unlock Rounds</div>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:16px">Locking reveals all picks to every player and prevents further changes.</p>
+        ${lockRows}
+      </div>`;
+  }
+
+  // ── Picks viewer tab ─────────────────────────────────────────
+  if (adminTab === 'picks') {
+    const round  = ROUNDS[S.activeRound];
+    const rid    = round.id;
+
+    const pillsHtml = Object.values(ROUNDS).map(r =>
+      `<button class="pill ${S.activeRound===r.id?'active':''}" data-r="${r.id}">${roundLabel(r)}</button>`
+    ).join('');
+
+    const otherPlayers = S.profiles.filter(p => !p.is_admin);
+
+    const playersHtml = otherPlayers.length === 0
+      ? '<p style="color:var(--muted);font-size:13px">No players yet.</p>'
+      : otherPlayers.map(player => {
+          const matchRows = round.matches.map(m => {
+            const pick   = S.picks[player.id]?.[rid]?.[m.id] || {};
+            const result = S.results[rid]?.[m.id] || {};
+            const hasRes = !!result.winner;
+            const icon   = !pick.winner ? '' : !hasRes ? '⏳' : pick.winner === result.winner ? '✅' : '❌';
+            const score  = pick.winner && pick.score_home !== '' && pick.score_home !== undefined
+              ? ` (${pick.score_home}–${pick.score_away})` : '';
+            const matchLabel = m.label ? ` <span style="font-size:10px;color:#ff7043">[${m.label}]</span>` : '';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+              border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
+              <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+              <span style="color:${pick.winner?'var(--text)':'var(--faint)'}">
+                ${pick.winner ? `${pick.winner}${score} ${icon}` : '— no pick —'}
+              </span>
+            </div>`;
+          }).join('');
+
+          const bonusRows = getActiveQuestions(rid).map(bq => {
+            const ans    = S.bonusAnswers[player.id]?.[rid]?.[bq.id] || {};
+            const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
+            const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+              border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
+              <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
+              <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer || '—'} ${icon}</span>
+            </div>`;
+          }).join('');
+
+          return `<div class="card" style="margin-bottom:10px">
+            <div class="card-title" style="margin-bottom:10px">${player.nickname||player.name}</div>
+            ${matchRows}
+            ${round.bonusQuestions.length ? `<div style="margin-top:10px"><div style="font-size:11px;color:var(--gold);margin-bottom:6px">⭐ Bonus</div>${bonusRows}</div>` : ''}
+          </div>`;
+        }).join('');
+
+    tabContent = `
+      <div class="pill-row">${pillsHtml}</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+        Viewing picks for: <strong style="color:var(--gold)">${roundLabel(round)}</strong>
+      </p>
+      ${playersHtml}`;
+  }
+
+  // ── Question bank tab ─────────────────────────────────────────
+  if (adminTab === 'questions') {
+    const QUESTION_BANK = [
+      {id:'qb1', cat:'⚽ Goals',       text:'Will any team score 4+ goals in a single match?',            pts:2, opts:['Yes','No']},
+      {id:'qb2', cat:'⚽ Goals',       text:'Total goals across all matches in this round?',               pts:3, opts:['0–5','6–10','11–15','16+']},
+      {id:'qb3', cat:'⚽ Goals',       text:'Will any match end 0-0?',                                     pts:2, opts:['Yes','No']},
+      {id:'qb4', cat:'⚽ Goals',       text:'Will any player score a hat-trick?',                          pts:3, opts:['Yes','No']},
+      {id:'qb5', cat:'⚽ Goals',       text:'Will a goal be scored from outside the box?',                 pts:3, opts:['Yes','No']},
+      {id:'qb6', cat:'⚽ Goals',       text:'Will there be an own goal?',                                  pts:2, opts:['Yes','No']},
+      {id:'qb7', cat:'⚽ Goals',       text:'How many matches decided by exactly one goal?',               pts:3, opts:['0–1','2–3','4–5','All']},
+      {id:'qb8', cat:'⚽ Goals',       text:'Will a direct free kick goal be scored?',                     pts:3, opts:['Yes','No']},
+      {id:'qb9', cat:'⚽ Goals',       text:'How many penalties will be scored?',                          pts:2, opts:['0','1','2','3+']},
+      {id:'qb10',cat:'⚽ Goals',       text:'Will a winning goal be scored in added time?',                pts:3, opts:['Yes','No']},
+      {id:'qb11',cat:'🟨 Discipline',  text:'Will any player receive a red card?',                        pts:2, opts:['Yes','No']},
+      {id:'qb12',cat:'🟨 Discipline',  text:'Total yellow cards across all matches?',                      pts:3, opts:['0–5','6–10','11–15','16+']},
+      {id:'qb13',cat:'🟨 Discipline',  text:'Will there be a VAR red card review?',                       pts:2, opts:['Yes','No']},
+      {id:'qb14',cat:'🟨 Discipline',  text:'Total red cards in this round?',                              pts:2, opts:['0','1','2','3+']},
+      {id:'qb15',cat:'🟨 Discipline',  text:'Will a player receive two yellows in any match?',             pts:2, opts:['Yes','No']},
+      {id:'qb16',cat:'🟨 Discipline',  text:'Will a manager be sent to the stands?',                      pts:3, opts:['Yes','No']},
+      {id:'qb17',cat:'🧤 Goalkeeping', text:'How many clean sheets in this round?',                       pts:2, opts:['0','1','2','3+']},
+      {id:'qb18',cat:'🧤 Goalkeeping', text:'Will any goalkeeper save a penalty?',                        pts:3, opts:['Yes','No']},
+      {id:'qb19',cat:'🧤 Goalkeeping', text:'Will a goalkeeper error lead to a goal?',                    pts:3, opts:['Yes','No']},
+      {id:'qb20',cat:'🧤 Goalkeeping', text:'Will a goalkeeper be subbed off injured?',                   pts:4, opts:['Yes','No']},
+      {id:'qb21',cat:'📊 Stats',       text:'Which team has the highest average possession?',             pts:2, opts:['Team A','Team B','Team C','Team D']},
+      {id:'qb22',cat:'📊 Stats',       text:'Which team earns the most corner kicks?',                    pts:2, opts:['Team A','Team B','Team C','Team D']},
+      {id:'qb23',cat:'📊 Stats',       text:'Total corners across all matches?',                           pts:3, opts:['0–15','16–25','26–35','36+']},
+      {id:'qb24',cat:'🏆 Tournament',  text:'Will any host nation be eliminated?',                        pts:3, opts:['Yes – USA','Yes – Canada','Yes – Mexico','No']},
+      {id:'qb25',cat:'🏆 Tournament',  text:'Will the defending champion win?',                            pts:3, opts:['Yes','No']},
+      {id:'qb26',cat:'🏆 Tournament',  text:'Will an African team reach the semi-finals?',                pts:4, opts:['Yes','No']},
+      {id:'qb27',cat:'🏆 Tournament',  text:'How many matches go to extra time in this round?',           pts:3, opts:['0','1–2','3–4','5+']},
+      {id:'qb28',cat:'🏆 Tournament',  text:'Will any match be decided by penalties?',                    pts:3, opts:['Yes – 1','Yes – 2+','No']},
+      {id:'qb29',cat:'🏆 Tournament',  text:'Will an upset (lower-ranked team wins) occur?',              pts:2, opts:['Yes','No']},
+      {id:'qb30',cat:'🏆 Tournament',  text:'Which host nation finishes highest in their group?',         pts:3, opts:['USA','Canada','Mexico','Equal']},
+    ];
+
+    // ── Round selector ───────────────────────────────────────────
+    const qRid = S.activeRound;
+    const qRound = ROUNDS[qRid];
+    const qPillsHtml = Object.values(ROUNDS).map(r =>
+      `<button class="pill ${qRid===r.id?'active':''}" data-r="${r.id}">${roundLabel(r)}</button>`
+    ).join('');
+
+    const activeQs = getActiveQuestions(qRid);
+    const isCustom = !!S.customBonusQs[qRid];
+
+    // ── Active questions editor ──────────────────────────────────
+    const activeEditorRows = activeQs.map((q, i) => `
+      <div style="padding:12px 0;border-bottom:1px solid var(--border2)">
+        <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:11px;color:var(--muted);width:20px;padding-top:10px;flex-shrink:0">${i+1}.</span>
+          <textarea rows="2" data-eq-text="${i}" style="flex:1;min-width:180px;background:rgba(255,255,255,0.06);
+            border:1.5px solid rgba(255,255,255,0.12);border-radius:8px;color:var(--text);
+            padding:8px 10px;font-size:12px;font-family:Arial,sans-serif;resize:vertical">${q.text.replace(/</g,'&lt;')}</textarea>
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <label style="font-size:10px;color:var(--muted)">Pts</label>
+            <input type="number" min="1" max="20" data-eq-pts="${i}" value="${q.pts}"
+              style="width:52px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);
+              border-radius:8px;color:var(--gold);text-align:center;font-size:14px;font-weight:700;
+              padding:6px 4px;font-family:Arial,sans-serif">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:28px">
+          <span style="font-size:10px;color:var(--muted);flex-shrink:0">Options (comma-separated):</span>
+          <input data-eq-opts="${i}" value="${q.opts.join(', ').replace(/"/g,'&quot;')}"
+            style="flex:1;min-width:140px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+            border-radius:6px;color:var(--text);padding:5px 8px;font-size:11px;font-family:Arial,sans-serif">
+          <button class="btn btn-gold btn-sm" data-save-q="${i}" data-rid="${qRid}">Save</button>
+          <button class="btn btn-danger btn-sm" data-del-q="${i}" data-rid="${qRid}">Delete</button>
+        </div>
+      </div>`).join('');
+
+    // ── Question bank ────────────────────────────────────────────
+    const catFilter  = S.adminQFilter || 'All';
+    const categories = ['All', ...new Set(QUESTION_BANK.map(q => q.cat))];
+    const filtered   = QUESTION_BANK.filter(q => catFilter === 'All' || q.cat === catFilter);
+
+    const catPills = categories.map(c =>
+      `<button class="pill ${catFilter===c?'active':''}" data-qcat="${c}" style="font-size:11px">${c}</button>`
+    ).join('');
+
+    const bankRows = filtered.map((q, bi) => `
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border2)">
+        <div style="flex:1">
+          <div style="font-size:12px;color:var(--text);margin-bottom:4px">${q.text}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;background:rgba(255,255,255,0.06);color:var(--muted);padding:2px 8px;border-radius:10px">${q.cat}</span>
+            <span style="font-size:11px;color:var(--gold);font-weight:700">${q.pts} pts</span>
+            <span style="font-size:10px;color:var(--muted)">${q.opts.join(' / ')}</span>
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" data-use-bank-q="${bi}" data-rid="${qRid}"
+          style="flex-shrink:0;border-color:var(--gold);color:var(--gold)">Use →</button>
+      </div>`).join('');
+
+    tabContent = `
+      <div class="pill-row">${qPillsHtml}</div>
+
+      <div class="card" style="border-color:rgba(255,215,0,0.2);margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+          <div class="card-title" style="margin:0">✏️ Active Questions — ${roundLabel(qRound)}</div>
+          <div style="display:flex;gap:8px">
+            ${isCustom ? `<button class="btn btn-sm btn-outline" id="reset-qs-btn" data-rid="${qRid}" style="font-size:11px;color:#ff7043;border-color:#ff7043">↩ Reset to defaults</button>` : ''}
+            <button class="btn btn-sm btn-outline" id="add-blank-q-btn" data-rid="${qRid}">＋ Add blank</button>
+          </div>
+        </div>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:12px">
+          Edit text, points, and options inline then hit Save. Use the bank below to insert pre-written questions.
+        </p>
+        ${activeEditorRows || '<p style="color:var(--muted);font-size:13px">No questions for this round yet. Add one below.</p>'}
+      </div>
+
+      <div class="card" style="border-color:rgba(255,255,255,0.08)">
+        <div class="card-title">📚 Question Bank <span style="font-size:11px;color:var(--muted);font-weight:400">(click "Use →" to add to active questions)</span></div>
+        <div class="pill-row" style="margin-bottom:12px">${catPills}</div>
+        ${bankRows}
+      </div>`;
+
+    // Store bank ref for event handlers
+    window._adminQuestionBank = QUESTION_BANK;
+  }
+
+  // ── Players tab ──────────────────────────────────────────────
+  if (adminTab === 'players') {
+    const players = S.profiles.filter(p => !p.is_admin);
+    const playerRows = players.map(p => {
+      const { total, correctPicks, exactScores } = calcScore(p.id);
+      const achs = (p.achievements || []).slice(0, 5)
+        .map(a => { const d = ACHIEVEMENTS[a.type]; return d ? `<span title="${d.label}">${d.icon}</span>` : ''; })
+        .join('');
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;
+        border-bottom:1px solid var(--border2);flex-wrap:wrap">
+        <div style="flex:1;min-width:120px">
+          <div style="color:var(--text);font-weight:700;font-size:13px">${p.nickname||p.name}</div>
+          ${p.nickname ? `<div style="color:var(--muted);font-size:11px">${p.name}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:12px;font-size:12px">
+          <span style="color:var(--green);font-weight:700">${total} pts</span>
+          <span style="color:#90caf9">${correctPicks} ✓</span>
+          <span style="color:#ce93d8">${exactScores} 🎯</span>
+        </div>
+        <div style="font-size:14px;display:flex;gap:2px">${achs}</div>
+        <button class="btn btn-sm btn-outline" data-view-profile="${p.id}">Profile</button>
+      </div>`;
+    }).join('');
+
+    tabContent = `
+      <div class="card">
+        <div class="card-title">👥 Players (${players.length})</div>
+        ${playerRows || '<p style="color:var(--muted);font-size:13px">No players yet.</p>'}
+      </div>`;
+  }
+
+  return `
+    <div class="page-title">⚙️ Admin Panel</div>
+    <div class="pill-row">${tabsHtml}</div>
+    ${tabContent}`;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────
+function calcRoundScore(uid, rid) {
+  const round = ROUNDS[rid];
+  if (!round) return 0;
+  let pts = 0;
+  const { match: mMult, bonus: bMult } = getMultipliers(rid);
+  for (const m of round.matches) {
+    const pick   = S.picks[uid]?.[rid]?.[m.id];
+    const result = S.results[rid]?.[m.id];
+    if (!pick || !result || !result.winner || !pick.winner) continue;
+    if (pick.winner === result.winner) {
+      pts += 2 * mMult;
+      if (String(pick.score_home) === String(result.score_home) &&
+          String(pick.score_away) === String(result.score_away) &&
+          result.score_home !== '') pts += 1 * mMult;
+    }
+  }
+  for (const bq of getActiveQuestions(rid)) {
+    const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
+    const correct = S.bonusResults[rid]?.[bq.id];
+    if (!ans || !correct || !correct.answer || !ans.answer) continue;
+    if (ans.answer === correct.answer) {
+      const wager = round.knockout ? (Number(ans.wager) || 0) : 0;
+      pts += (bq.pts * bMult) + wager;
+    } else if (round.knockout && Number(ans.wager) > 0) {
+      pts -= Number(ans.wager);
+    }
+  }
+  return pts;
+}
+
+function renderDashboard() {
+  const lb      = getLeaderboard();
+  const maxPts  = lb[0]?.total || 1;
+  const medal   = r => ['🥇','🥈','🥉'][r-1] || `#${r}`;
+  const getName = p => p?.nickname || p?.name || '—';
+
+  const playedRounds = Object.values(ROUNDS).filter(round =>
+    round.matches.some(m => S.results[round.id]?.[m.id]?.winner)
+  );
+  const lastRound = playedRounds[playedRounds.length - 1];
+
+  let roundLeader = null, roundLeaderPts = 0;
+  if (lastRound) {
+    S.profiles.forEach(p => {
+      const pts = calcRoundScore(p.id, lastRound.id);
+      if (pts > roundLeaderPts) { roundLeaderPts = pts; roundLeader = p; }
+    });
+  }
+
+  let mostCorrect = null, mostCorrectN = -1;
+  let exactKing   = null, exactKingN   = -1;
+  S.profiles.forEach(p => {
+    const { correctPicks, exactScores } = calcScore(p.id);
+    if (correctPicks > mostCorrectN) { mostCorrectN = correctPicks; mostCorrect = p; }
+    if (exactScores  > exactKingN)   { exactKingN   = exactScores;  exactKing   = p; }
+  });
+
+  const statsCards = [
+    { icon:'👥', value: S.profiles.length,  label:'Total Players', color:'#1565c0' },
+    { icon:'🥇', value: getName(lb[0]),      label:'Leader',        color:'#b8860b' },
+    { icon:'⚡', value: lb[0]?.total ?? 0,   label:'Top Score',     color:'#2e7d32' },
+    { icon:'📅', value: playedRounds.length, label:'Rounds Played', color:'#6a1b9a' },
+  ].map(s => `<div class="stat-card">
+    <div class="stat-icon">${s.icon}</div>
+    <div class="stat-value" style="color:${s.color}">${s.value}</div>
+    <div class="stat-label">${s.label}</div>
+  </div>`).join('');
+
+  const standingsRows = lb.length
+    ? lb.map((p, i) => {
+        const barW = Math.round((p.total / maxPts) * 100);
+        return `<div class="player-row">
+          <span style="width:28px;font-size:${i<3?18:13}px;text-align:center;flex-shrink:0">${medal(p.rank)}</span>
+          <span style="color:var(--text);font-size:13px;min-width:80px;flex-shrink:0">${getName(p)}</span>
+          <div class="mini-bar-wrap"><div class="mini-bar" style="width:${barW}%"></div></div>
+          <span style="color:var(--green);font-weight:700;font-size:15px;min-width:32px;text-align:right">${p.total}</span>
+        </div>`;
+      }).join('')
+    : '<p style="color:var(--muted);text-align:center;font-size:13px">No data yet.</p>';
+
+  const hlCard = (icon, title, player, stat) => `<div class="highlight-card">
+    <div class="highlight-label">${icon} ${title}</div>
+    ${player
+      ? `<div class="highlight-name">${getName(player)}</div><div class="highlight-stat">${stat}</div>`
+      : `<div style="color:var(--muted);font-size:12px">No data yet</div>`}
+  </div>`;
+
+  let roundsTableHtml = '';
+  if (playedRounds.length > 0) {
+    const headerCells = playedRounds.map(r => `<th>${r.id.toUpperCase()}</th>`).join('');
+    const rows = lb.map(p => {
+      const cells = playedRounds.map(r =>
+        `<td style="color:#90caf9">${calcRoundScore(p.id, r.id)}</td>`
+      ).join('');
+      return `<tr>
+        <td>${getName(p)}</td>${cells}
+        <td style="color:var(--green);font-weight:700">${p.total}</td>
+      </tr>`;
+    }).join('');
+    roundsTableHtml = `<div class="card" style="margin-top:4px">
+      <div class="card-title">📊 Points by Round</div>
+      <div style="overflow-x:auto">
+        <table class="rounds-table">
+          <thead><tr>
+            <th>Player</th>${headerCells}<th style="color:var(--gold)">Total</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>`;
-  }).join('');
+  }
 
-  const bonusResultsHtml = round.bonusQuestions.map(bq => {
-    const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
-    const opts = bq.opts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
-    return `<div class="admin-match-row">
-      <span class="admin-match-label" style="font-size:11px">${bq.text}</span>
-      <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
-        <option value="">– Answer –</option>${opts}
-      </select>
+  return `
+    <div class="page-title">Dashboard</div>
+    <div class="stat-grid">${statsCards}</div>
+    <div class="card">
+      <div class="card-title">🏆 Overall Standings</div>
+      ${standingsRows}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      ${hlCard('⚡', 'Round Leader', roundLeader,
+          lastRound ? `${roundLeaderPts} pts in ${lastRound.label.replace('Group Stage – ','')}` : '')}
+      ${hlCard('🎯', 'Most Correct Picks', mostCorrect,
+          mostCorrect ? `${mostCorrectN} correct picks` : '')}
+      ${hlCard('🔮', 'Exact Score King', exactKing,
+          exactKing ? `${exactKingN} exact scores` : '')}
+      <div class="highlight-card">
+        <div class="highlight-label">💰 Pool</div>
+        <div style="text-align:center;padding:8px 0">
+          <div style="color:var(--gold);font-size:28px;font-weight:700">${S.profiles.length}</div>
+          <div style="color:var(--muted);font-size:12px">players registered</div>
+        </div>
+      </div>
+    </div>
+    ${roundsTableHtml}`;
+}
+
+// ── Bracket ───────────────────────────────────────────────────────
+function renderBracket() {
+  const knockoutRounds = ['r32','r16','qf','sf','final'];
+  const icons = { r32:'⚡', r16:'⚔️', qf:'🏅', sf:'🌟', final:'🏆' };
+
+  const matchCard = (m, rid) => {
+    const result  = S.results[rid]?.[m.id] || {};
+    const hasRes  = !!result.winner;
+    const homeWon = hasRes && result.winner === m.home;
+    const awayWon = hasRes && result.winner === m.away;
+    return `<div class="bracket-match ${hasRes?'has-result':''}">
+      <div class="bracket-team ${homeWon?'winner':hasRes?'loser':''}">
+        <span>${F(m.home)} ${m.home}</span>
+        ${hasRes ? `<span class="bracket-score">${result.score_home??''}</span>` : ''}
+      </div>
+      <div class="bracket-vs">vs</div>
+      <div class="bracket-team ${awayWon?'winner':hasRes?'loser':''}">
+        <span>${F(m.away)} ${m.away}</span>
+        ${hasRes ? `<span class="bracket-score">${result.score_away??''}</span>` : ''}
+      </div>
+    </div>`;
+  };
+
+  const roundsHtml = knockoutRounds.map(rid => {
+    const round = ROUNDS[rid];
+    return `<div class="bracket-section">
+      <div class="bracket-section-title">${icons[rid]} ${round.label}</div>
+      <div class="bracket-grid">
+        ${round.matches.map(m => matchCard(m, rid)).join('')}
+      </div>
     </div>`;
   }).join('');
 
   return `
-    <div class="page-title">⚙️ Admin Panel</div>
-    <div class="pill-row">${pillsHtml}</div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin:0">${round.label} — Results</div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <span class="lock-badge ${locked?'locked':'open'}">${locked?'🔒 Locked':'🔓 Open'}</span>
-          <button class="btn btn-sm ${locked?'btn-danger':'btn-outline'}" data-action="toggle-lock" data-rid="${rid}">
-            ${locked?'Unlock round':'Lock round'}
-          </button>
-        </div>
-      </div>
-      <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Locking reveals all picks to every player.</p>
-      ${matchResultsHtml}
-    </div>
-
-    <div class="card" style="border-color:rgba(255,215,0,0.2)">
-      <div class="card-title">⭐ Bonus Question Answers</div>
-      ${bonusResultsHtml}
-    </div>`;
+    <div class="page-title">🏆 Tournament Bracket</div>
+    <div class="notice" style="margin-bottom:16px">Knockout stage results will populate the bracket as the tournament progresses.</div>
+    ${roundsHtml}`;
 }
 
 // ── Rules ─────────────────────────────────────────────────────────
@@ -807,7 +1698,9 @@ function render() {
   if (!S.user) { renderAuth(); return; }
   let content = '';
   switch(S.page) {
+    case 'dashboard':   content = renderDashboard(); break;
     case 'picks':       content = renderPicks(); break;
+    case 'bracket':     content = renderBracket(); break;
     case 'leaderboard': content = renderLeaderboard(); break;
     case 'admin':       content = renderAdmin(); break;
     case 'rules':       content = renderRules(); break;
@@ -903,8 +1796,115 @@ function attachEvents() {
   // Admin: lock toggle
   document.querySelectorAll('[data-action="toggle-lock"]').forEach(btn => {
     btn.onclick = async () => {
+      btn.disabled = true;
       await toggleLock(btn.dataset.rid);
-      await loadAllData(); // reload to pick up new locked state
+      await loadAllData();
+      render();
+    };
+  });
+
+  // Admin: tab switcher
+  document.querySelectorAll('[data-admin-tab]').forEach(btn => {
+    btn.onclick = () => { S.adminTab = btn.dataset.adminTab; render(); };
+  });
+
+  // Admin: question bank category filter
+  document.querySelectorAll('[data-qcat]').forEach(btn => {
+    btn.onclick = () => { S.adminQFilter = btn.dataset.qcat; render(); };
+  });
+
+  // Admin: view player profile
+  document.querySelectorAll('[data-view-profile]').forEach(btn => {
+    btn.onclick = () => {
+      const prof = S.profiles.find(p => p.id === btn.dataset.viewProfile);
+      if (prof) showPlayerModal(prof);
+    };
+  });
+
+  // Admin: save multipliers
+  const saveMultBtn = document.getElementById('save-mult-btn');
+  if (saveMultBtn) {
+    saveMultBtn.onclick = () => {
+      const rid = saveMultBtn.dataset.rid;
+      if (!S.multipliers[rid]) S.multipliers[rid] = {};
+      S.multipliers[rid].match = parseFloat(document.getElementById('mult-match').value) || 1;
+      S.multipliers[rid].bonus = parseFloat(document.getElementById('mult-bonus').value) || 1;
+      saveMultipliers();
+      render();
+    };
+  }
+
+  // Admin: save edited question
+  document.querySelectorAll('[data-save-q]').forEach(btn => {
+    btn.onclick = () => {
+      const i   = Number(btn.dataset.saveQ);
+      const rid = btn.dataset.rid;
+      const qs  = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      const textEl = document.querySelector(`[data-eq-text="${i}"]`);
+      const ptsEl  = document.querySelector(`[data-eq-pts="${i}"]`);
+      const optsEl = document.querySelector(`[data-eq-opts="${i}"]`);
+      qs[i] = {
+        ...qs[i],
+        text: textEl?.value || qs[i].text,
+        pts:  Number(ptsEl?.value)  || qs[i].pts,
+        opts: optsEl?.value.split(',').map(o => o.trim()).filter(Boolean) || qs[i].opts,
+      };
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  // Admin: delete question
+  document.querySelectorAll('[data-del-q]').forEach(btn => {
+    btn.onclick = () => {
+      const i   = Number(btn.dataset.delQ);
+      const rid = btn.dataset.rid;
+      const qs  = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      qs.splice(i, 1);
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  // Admin: add blank question
+  const addBlankBtn = document.getElementById('add-blank-q-btn');
+  if (addBlankBtn) {
+    addBlankBtn.onclick = () => {
+      const rid = addBlankBtn.dataset.rid;
+      const qs  = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      qs.push({ id: `custom_${rid}_${Date.now()}`, text: 'New question', pts: 2, opts: ['Yes', 'No'] });
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  }
+
+  // Admin: reset questions to defaults
+  const resetQsBtn = document.getElementById('reset-qs-btn');
+  if (resetQsBtn) {
+    resetQsBtn.onclick = () => {
+      const rid = resetQsBtn.dataset.rid;
+      delete S.customBonusQs[rid];
+      saveCustomQuestions();
+      render();
+    };
+  }
+
+  // Admin: use bank question (add to active list for this round)
+  document.querySelectorAll('[data-use-bank-q]').forEach(btn => {
+    btn.onclick = () => {
+      const bi  = Number(btn.dataset.useBankQ);
+      const rid = btn.dataset.rid;
+      const bank = window._adminQuestionBank || [];
+      const bq   = bank[bi];
+      if (!bq) return;
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      qs.push({ id: `bk_${rid}_${Date.now()}`, text: bq.text, pts: bq.pts, opts: [...bq.opts] });
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      S.adminTab = 'questions'; // stay on questions tab
       render();
     };
   });
@@ -923,7 +1923,8 @@ function showMsg(el, text, type) {
 // 10. INIT
 // ════════════════════════════════════════════════════════════════
 async function init() {
-  // Check for existing session
+  initTheme();
+  loadLocalSettings();
   const { data: { session } } = await sb.auth.getSession();
 
   if (session?.user) {
@@ -941,7 +1942,7 @@ async function init() {
       const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
       S.profile = profile;
       await loadAllData();
-      S.page = 'picks';
+      S.page = 'dashboard';
       render();
     } else if (event === 'SIGNED_OUT') {
       S.user = null; S.profile = null;
