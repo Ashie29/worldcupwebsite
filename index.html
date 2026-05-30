@@ -601,6 +601,8 @@ const S = {
   multipliers: {},        // rid → {match: number, bonus: number}
   kickoffOverrides: {},   // mid → ISO string (admin edits for delayed matches)
   ptSettings: { winnerPts: 10 }, // pre-tournament settings
+  lockSchedules: {},  // rid → { lockAt: ISO string, unlockAt: ISO string }
+  bracketTeams: {},   // mid → { home: string, away: string }
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -630,6 +632,19 @@ function savePtSettings() {
   localStorage.setItem('wc26:ptSettings', JSON.stringify(S.ptSettings));
 }
 
+function saveLockSchedules() {
+  localStorage.setItem('wc26:lockSchedules', JSON.stringify(S.lockSchedules));
+}
+
+function saveBracketTeams() {
+  localStorage.setItem('wc26:bracketTeams', JSON.stringify(S.bracketTeams));
+}
+
+// Returns the actual team name for a bracket slot, falling back to the placeholder
+function getBracketTeam(mid, side, defaultName) {
+  return S.bracketTeams[mid]?.[side] || defaultName;
+}
+
 function loadLocalSettings() {
   try {
     const cq = localStorage.getItem('wc26:customBonusQs');
@@ -647,6 +662,14 @@ function loadLocalSettings() {
     const ps = localStorage.getItem('wc26:ptSettings');
     if (ps) S.ptSettings = { ...S.ptSettings, ...JSON.parse(ps) };
   } catch {}
+  try {
+    const ls = localStorage.getItem('wc26:lockSchedules');
+    if (ls) S.lockSchedules = JSON.parse(ls);
+  } catch {}
+  try {
+    const bt = localStorage.getItem('wc26:bracketTeams');
+    if (bt) S.bracketTeams = JSON.parse(bt);
+  } catch {}
 }
 
 // Returns the effective kickoff ISO string for a match (override takes priority)
@@ -660,6 +683,52 @@ function toDatetimeLocal(isoStr) {
   const d = new Date(isoStr);
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Returns a human-readable countdown string (e.g. "in 2h 30m", "in 4d 3h", "PASSED")
+function scheduleCountdown(isoStr) {
+  if (!isoStr) return '';
+  const diff = new Date(isoStr).getTime() - Date.now();
+  if (diff <= 0) return 'PASSED';
+  const totalMins = Math.floor(diff / 60000);
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hrs >= 48) return `in ${Math.floor(hrs/24)}d ${hrs%24}h`;
+  if (hrs >= 1)  return `in ${hrs}h ${mins}m`;
+  return `in ${mins}m`;
+}
+
+async function checkLockSchedules() {
+  const now = Date.now();
+  let changed = false;
+  for (const rid of Object.keys(ROUNDS)) {
+    const sched = S.lockSchedules[rid];
+    if (!sched) continue;
+    const locked = S.roundSettings[rid]?.locked || false;
+
+    if (sched.lockAt && !locked && now >= new Date(sched.lockAt).getTime()) {
+      // Time to auto-lock
+      if (!S.roundSettings[rid]) S.roundSettings[rid] = {};
+      S.roundSettings[rid].locked = true;
+      try {
+        await sb.from('round_settings').upsert({ round_id: rid, locked: true }, { onConflict: 'round_id' });
+      } catch(e) { S.roundSettings[rid].locked = false; }
+      delete S.lockSchedules[rid].lockAt;
+      changed = true;
+    }
+
+    if (sched.unlockAt && locked && now >= new Date(sched.unlockAt).getTime()) {
+      // Time to auto-unlock
+      if (!S.roundSettings[rid]) S.roundSettings[rid] = {};
+      S.roundSettings[rid].locked = false;
+      try {
+        await sb.from('round_settings').upsert({ round_id: rid, locked: false }, { onConflict: 'round_id' });
+      } catch(e) { S.roundSettings[rid].locked = true; }
+      delete S.lockSchedules[rid].unlockAt;
+      changed = true;
+    }
+  }
+  if (changed) { saveLockSchedules(); render(); }
 }
 
 function matchCountdown(kickoff) {
@@ -1119,6 +1188,7 @@ function renderShell(content) {
   const tabs = [
     { id:'dashboard', label:'Dashboard' },
     { id:'picks', label:'My Picks' },
+    { id:'groups', label:'Groups' },
     { id:'bracket', label:'Bracket' },
     { id:'leaderboard', label:'Leaderboard' },
     ...(isAdmin ? [{ id:'admin', label:'⚙️ Admin' }] : []),
@@ -1356,6 +1426,8 @@ function renderPicks() {
   </div>`;
 
   const matchesHtml = round.matches.map(m => {
+    const homeTeam = getBracketTeam(m.id, 'home', m.home);
+    const awayTeam = getBracketTeam(m.id, 'away', m.away);
     const pick   = S.picks[uid]?.[rid]?.[m.id] || {};
     const result = S.results[rid]?.[m.id] || {};
     const winner = pick.winner || '';
@@ -1391,9 +1463,9 @@ function renderPicks() {
     const cdBadge = (isAdmin || isPinAdmin) ? '' : matchCountdown(getKickoff(m.id, m.kickoff));
 
     return `<div class="match-row">
-      ${teamBtn(m.home,false)}
+      ${teamBtn(homeTeam,false)}
       <span class="vs">vs</span>
-      ${teamBtn(m.away,false)}
+      ${teamBtn(awayTeam,false)}
       ${!round.knockout ? teamBtn('Draw',true) : ''}
       <div class="score-wrap" style="flex-direction:column;gap:2px;align-items:center">
         <div style="display:flex;gap:2px;align-items:center">
@@ -1635,17 +1707,74 @@ function renderAdmin() {
               <option value="">— Winner —</option>${allTeamOpts}
             </select>
           </div>
-        </div>`;
+        </div>
+        ${(() => {
+          const players = S.profiles.filter(p => !p.is_admin);
+          const ptBr = S.bonusResults['pt'] || {};
+          const groupsWithResults = Object.keys(GROUPS).filter(g => ptBr[`pt_${g}_1`]?.answer || ptBr[`pt_${g}_2`]?.answer).length;
+          const winnerSet = !!ptBr['pt_winner']?.answer;
+
+          const previewRows = players.map(p => {
+            const ptBa = S.bonusAnswers[p.id]?.['pt'] || {};
+            let groupPts = 0, winnerPtsEarned = 0;
+            const groupDetails = Object.entries(GROUPS).map(([g, teams]) => {
+              const p1 = ptBa[`pt_${g}_1`]?.answer, p2 = ptBa[`pt_${g}_2`]?.answer;
+              const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
+              if (!r1 && !r2) return null;
+              const qualified = new Set([r1, r2].filter(Boolean));
+              let gPts = 0;
+              if (p1) { if (p1 === r1) gPts += 2; else if (r1 && qualified.has(p1)) gPts += 1; }
+              if (p2) { if (p2 === r2) gPts += 2; else if (r2 && qualified.has(p2)) gPts += 1; }
+              groupPts += gPts;
+              return `<span title="Group ${g}: ${p1||'—'} / ${p2||'—'}" style="font-size:10px;font-family:var(--mono);
+                color:${gPts===4?'#66bb6a':gPts>0?'#90caf9':'var(--faint)'}">${g}:${gPts}</span>`;
+            }).filter(Boolean).join(' ');
+            const wPick = ptBa['pt_winner']?.answer, wRes = ptBr['pt_winner']?.answer;
+            if (wPick && wRes && wPick === wRes) winnerPtsEarned = winPts;
+            const totalPt = groupPts + winnerPtsEarned;
+            return `<tr>
+              <td style="padding:8px;color:var(--text)">${p.nickname||p.name}</td>
+              <td style="padding:8px;font-size:10px;font-family:var(--mono)">${groupDetails || '<span style="color:var(--faint)">no picks</span>'}</td>
+              <td style="padding:8px;text-align:center;color:#90caf9;font-family:var(--mono)">${groupPts}</td>
+              <td style="padding:8px;text-align:center;color:${winnerPtsEarned>0?'#66bb6a':'var(--muted)'};font-family:var(--mono)">
+                ${wPick ? (wRes ? (winnerPtsEarned > 0 ? `+${winnerPtsEarned} ✅` : '0 ❌') : wPick) : '—'}
+              </td>
+              <td style="padding:8px;text-align:right;font-weight:700;color:#4CAF50;font-family:var(--mono)">${totalPt}</td>
+            </tr>`;
+          }).join('');
+
+          return `<div class="card" style="border-color:rgba(76,175,80,0.2);margin-top:4px">
+            <div class="card-title" style="color:#66bb6a;margin-bottom:10px">📊 Live Score Preview</div>
+            <p style="color:var(--muted);font-size:11px;margin-bottom:10px">
+              Groups with results set: <strong style="color:var(--text)">${groupsWithResults} / 12</strong>
+              · Tournament winner: <strong style="color:${winnerSet?'#66bb6a':'var(--faint)'}">${winnerSet ? ptBr['pt_winner'].answer : 'not set'}</strong>
+            </p>
+            ${players.length === 0
+              ? '<p style="color:var(--muted);font-size:13px">No players registered yet.</p>'
+              : `<table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead><tr style="border-bottom:1px solid var(--gold)">
+                  <th style="padding:5px 8px;text-align:left;color:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:0.1em">PLAYER</th>
+                  <th style="padding:5px 8px;color:var(--muted);font-family:var(--mono);font-size:10px">GROUP BREAKDOWN</th>
+                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">GROUP PTS</th>
+                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">WINNER</th>
+                  <th style="padding:5px 8px;text-align:right;color:var(--muted);font-family:var(--mono);font-size:10px">TOTAL</th>
+                </tr></thead>
+                <tbody>${previewRows}</tbody>
+              </table>`}
+          </div>`;
+        })()}`;
 
     } else {
       // ── Regular round results panel ────────────────────────────
       const matchResultsHtml = round.matches.map(m => {
         const res  = S.results[rid]?.[m.id] || {};
-        const opts = [m.home, ...(!round.knockout?['Draw']:[]), m.away];
+        const homeTeam = getBracketTeam(m.id, 'home', m.home);
+        const awayTeam = getBracketTeam(m.id, 'away', m.away);
+        const opts = [homeTeam, ...(!round.knockout?['Draw']:[]), awayTeam];
         const selOpts = opts.map(o => `<option value="${o}" ${res.winner===o?'selected':''}>${o}</option>`).join('');
         const matchLabel = m.label ? `<span style="font-size:10px;color:#ff7043;margin-left:6px">[${m.label}]</span>` : '';
         return `<div class="admin-match-row">
-          <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+          <span class="admin-match-label">${F(homeTeam)} ${homeTeam} vs ${F(awayTeam)} ${awayTeam}${matchLabel}</span>
           <select class="admin-select" data-action="result-winner" data-rid="${rid}" data-mid="${m.id}">
             <option value="">– Winner –</option>${selOpts}
           </select>
@@ -1691,6 +1820,30 @@ function renderAdmin() {
             Current: correct pick = ${2*mMult} pts · exact score = ${1*mMult} pts · bonus base pts × ${bMult}
           </p>
         </div>
+        ${round.knockout ? `
+        <div class="card" style="border-color:rgba(100,160,220,0.3)">
+          <div class="card-title" style="color:#90caf9">🔗 Bracket Team Names</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:14px">
+            Fill in the actual team names for each slot as they qualify.
+            These replace placeholders (like "1A") everywhere in the app — picks, bracket, and result dropdowns.
+            The API cannot determine these automatically.
+          </p>
+          ${round.matches.map(m => {
+            const homeVal = S.bracketTeams[m.id]?.home || '';
+            const awayVal = S.bracketTeams[m.id]?.away || '';
+            const matchLabel = m.label ? ` [${m.label}]` : '';
+            return `<div class="admin-match-row" style="flex-wrap:wrap;gap:8px;align-items:center">
+              <span class="admin-match-label" style="color:var(--muted);font-size:10px">${m.home} vs ${m.away}${matchLabel}</span>
+              <input class="admin-score" type="text" placeholder="${m.home}" value="${homeVal}"
+                style="width:130px;font-size:11px" data-action="bracket-team" data-mid="${m.id}" data-side="home">
+              <span class="vs">vs</span>
+              <input class="admin-score" type="text" placeholder="${m.away}" value="${awayVal}"
+                style="width:130px;font-size:11px" data-action="bracket-team" data-mid="${m.id}" data-side="away">
+              ${(homeVal || awayVal) ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px"
+                data-action="clear-bracket-team" data-mid="${m.id}">✕ Clear</button>` : ''}
+            </div>`;
+          }).join('')}
+        </div>` : ''}
         <div class="card" style="border-color:rgba(255,112,67,0.2)">
           <div class="card-title" style="color:#ff7043">⏱ Kickoff Times & Auto-Lock</div>
           <p style="color:var(--muted);font-size:11px;margin-bottom:14px">
@@ -1773,22 +1926,75 @@ function renderAdmin() {
   // ── Lock tab ─────────────────────────────────────────────────
   if (adminTab === 'lock') {
     const lockRows = Object.values(ROUNDS).map(r => {
-      const locked = S.roundSettings[r.id]?.locked || false;
-      return `<div style="display:flex;justify-content:space-between;align-items:center;
-        padding:12px 14px;border-radius:10px;margin-bottom:8px;
-        background:rgba(255,255,255,0.03);
-        border:1px solid ${locked?'rgba(255,112,67,0.4)':'var(--border2)'}">
-        <span style="font-size:14px;color:var(--text)">${roundLabel(r)}</span>
-        <button class="btn btn-sm ${locked?'btn-danger':'btn-outline'}" data-action="toggle-lock" data-rid="${r.id}">
-          ${locked ? '🔒 Locked' : '🔓 Unlocked'}
-        </button>
-      </div>`;
+      const rid     = r.id;
+      const locked  = S.roundSettings[rid]?.locked || false;
+      const sched   = S.lockSchedules[rid] || {};
+      const lockAt  = sched.lockAt   || '';
+      const unlockAt= sched.unlockAt || '';
+
+      const lockCountdown   = lockAt   ? scheduleCountdown(lockAt)   : '';
+      const unlockCountdown = unlockAt ? scheduleCountdown(unlockAt) : '';
+
+      const lockBadge = lockAt
+        ? `<span style="font-size:10px;font-family:var(--mono);color:${lockCountdown==='PASSED'?'#e88a80':'#ff7043'};margin-left:8px">
+            ${lockCountdown==='PASSED'?'⚠️ schedule passed':'⏱ locks '+lockCountdown}
+           </span>` : '';
+      const unlockBadge = unlockAt
+        ? `<span style="font-size:10px;font-family:var(--mono);color:${unlockCountdown==='PASSED'?'#e88a80':'#66bb6a'};margin-left:8px">
+            ${unlockCountdown==='PASSED'?'⚠️ schedule passed':'⏱ unlocks '+unlockCountdown}
+           </span>` : '';
+
+      return `
+        <div style="padding:14px 16px;margin-bottom:10px;
+          background:rgba(255,255,255,0.03);
+          border:1px solid ${locked?'rgba(255,112,67,0.4)':'var(--border2)'}">
+
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <span style="font-size:14px;color:var(--text);font-weight:500">${roundLabel(r)}</span>
+            <button class="btn btn-sm ${locked?'btn-danger':'btn-outline'}" data-action="toggle-lock" data-rid="${rid}">
+              ${locked ? '🔒 Locked' : '🔓 Unlocked'}
+            </button>
+          </div>
+
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:9px;color:#ff7043;font-family:var(--mono);letter-spacing:0.15em;margin-bottom:5px">
+                🔒 AUTO-LOCK AT${lockBadge}
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="datetime-local" class="admin-score"
+                  style="width:190px;font-family:var(--mono);font-size:11px;border-color:rgba(255,112,67,0.35)"
+                  value="${toDatetimeLocal(lockAt)}"
+                  data-action="set-lock-schedule" data-rid="${rid}" data-type="lockAt">
+                ${lockAt ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px;border-color:rgba(255,112,67,0.4);color:#ff7043"
+                  data-action="clear-lock-schedule" data-rid="${rid}" data-type="lockAt">✕</button>` : ''}
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:200px">
+              <div style="font-size:9px;color:#66bb6a;font-family:var(--mono);letter-spacing:0.15em;margin-bottom:5px">
+                🔓 AUTO-UNLOCK AT${unlockBadge}
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="datetime-local" class="admin-score"
+                  style="width:190px;font-family:var(--mono);font-size:11px;border-color:rgba(102,187,106,0.35)"
+                  value="${toDatetimeLocal(unlockAt)}"
+                  data-action="set-lock-schedule" data-rid="${rid}" data-type="unlockAt">
+                ${unlockAt ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px;border-color:rgba(102,187,106,0.4);color:#66bb6a"
+                  data-action="clear-lock-schedule" data-rid="${rid}" data-type="unlockAt">✕</button>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>`;
     }).join('');
 
     tabContent = `
       <div class="card" style="border-color:rgba(255,112,67,0.3)">
         <div class="card-title" style="color:#ff7043">🔒 Lock / Unlock Rounds</div>
-        <p style="color:var(--muted);font-size:11px;margin-bottom:16px">Locking reveals all picks to every player and prevents further changes.</p>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:16px">
+          Toggle rounds manually, or set a scheduled time to auto-lock and auto-unlock.
+          Schedules are stored on this device and checked every 30 seconds.
+        </p>
         ${lockRows}
       </div>`;
   }
@@ -2094,6 +2300,105 @@ function calcRoundScore(uid, rid) {
   return pts;
 }
 
+// ── Group Standings ───────────────────────────────────────────────
+function computeGroupStandings() {
+  const standings = {};
+  for (const [g, teams] of Object.entries(GROUPS)) {
+    standings[g] = teams.map(t => ({ team: t, played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, pts:0 }));
+  }
+  for (const rid of ['gs1','gs2','gs3']) {
+    const round = ROUNDS[rid];
+    if (!round) continue;
+    for (const m of round.matches) {
+      const result = S.results[rid]?.[m.id];
+      if (!result?.winner || result.score_home === '' || result.score_home == null) continue;
+      const sh = parseInt(result.score_home), sa = parseInt(result.score_away);
+      if (isNaN(sh) || isNaN(sa)) continue;
+      let grp = null;
+      for (const [g, teams] of Object.entries(GROUPS)) {
+        if (teams.includes(m.home) && teams.includes(m.away)) { grp = g; break; }
+      }
+      if (!grp) continue;
+      const home = standings[grp].find(t => t.team === m.home);
+      const away = standings[grp].find(t => t.team === m.away);
+      if (!home || !away) continue;
+      home.played++; away.played++;
+      home.gf += sh; home.ga += sa;
+      away.gf += sa; away.ga += sh;
+      if (sh > sa)      { home.won++; home.pts += 3; away.lost++; }
+      else if (sa > sh) { away.won++; away.pts += 3; home.lost++; }
+      else              { home.drawn++; home.pts++; away.drawn++; away.pts++; }
+    }
+  }
+  for (const g of Object.keys(standings)) {
+    for (const t of standings[g]) t.gd = t.gf - t.ga;
+    standings[g].sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team));
+  }
+  return standings;
+}
+
+function renderGroups() {
+  const standings = computeGroupStandings();
+  const anyResults = Object.values(standings).some(g => g.some(t => t.played > 0));
+
+  const groupCards = Object.entries(standings).map(([g, teams]) => {
+    const hasData = teams.some(t => t.played > 0);
+    const rows = teams.map((t, i) => {
+      const qualColor = i === 0 ? '#66bb6a' : i === 1 ? '#90caf9' : 'var(--muted)';
+      const bar = hasData && teams[0].pts > 0
+        ? Math.round((t.pts / (teams[0].pts || 1)) * 100) : 0;
+      return `<tr style="border-bottom:1px solid var(--border2)">
+        <td style="padding:7px 8px;width:20px">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;
+            background:${i<2?qualColor:'var(--faint)'};flex-shrink:0"></span>
+        </td>
+        <td style="padding:7px 8px;color:${i<2?'var(--text)':'var(--muted)'};white-space:nowrap">
+          ${F(t.team)} ${t.team}
+        </td>
+        <td style="padding:7px 6px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px">${t.played}</td>
+        <td style="padding:7px 6px;text-align:center;color:#66bb6a;font-family:var(--mono);font-size:11px">${t.won}</td>
+        <td style="padding:7px 6px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px">${t.drawn}</td>
+        <td style="padding:7px 6px;text-align:center;color:#e88a80;font-family:var(--mono);font-size:11px">${t.lost}</td>
+        <td style="padding:7px 6px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px">${t.gd > 0 ? '+' : ''}${t.gd}</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:700;color:var(--gold);font-family:var(--mono)">${t.pts}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:10px 14px 8px;display:flex;justify-content:space-between;align-items:center;
+        border-bottom:1px solid var(--border2);background:rgba(255,255,255,0.02)">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--gold);letter-spacing:0.2em">GROUP ${g}</span>
+        ${!hasData ? `<span style="font-size:10px;color:var(--faint);font-family:var(--mono)">No results yet</span>` : ''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="border-bottom:1px solid var(--border2)">
+          <th style="padding:5px 8px;width:20px"></th>
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);font-size:10px;font-family:var(--mono)">TEAM</th>
+          <th style="padding:5px 6px;text-align:center;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Played">P</th>
+          <th style="padding:5px 6px;text-align:center;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Won">W</th>
+          <th style="padding:5px 6px;text-align:center;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Drawn">D</th>
+          <th style="padding:5px 6px;text-align:center;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Lost">L</th>
+          <th style="padding:5px 6px;text-align:center;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Goal Difference">GD</th>
+          <th style="padding:5px 8px;text-align:right;color:var(--muted);font-size:10px;font-family:var(--mono)" title="Points">PTS</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="page-title">🌍 Group Standings</div>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:4px">
+      Live standings based on results entered so far.
+      <span style="color:var(--gold)">●</span> 1st
+      <span style="color:#90caf9">●</span> 2nd advance · Updates automatically as results are entered.
+    </p>
+    ${!anyResults ? `<div class="notice" style="margin-bottom:16px">No group stage results have been entered yet.</div>` : '<div style="margin-bottom:16px"></div>'}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:8px">
+      ${groupCards}
+    </div>`;
+}
+
 function renderDashboard() {
   const lb      = getLeaderboard();
   const maxPts  = lb[0]?.total || 1;
@@ -2288,25 +2593,25 @@ function renderBracket() {
 
   // R16 matches
   r16.matches.forEach((m, i) => {
-    svgBody += box(r16X, r16Y[i], m.home, m.away, 'r16', m.id, '');
+    svgBody += box(r16X, r16Y[i], getBracketTeam(m.id,'home',m.home), getBracketTeam(m.id,'away',m.away), 'r16', m.id, '');
   });
 
   // R16 → QF connectors + QF boxes
   qf.matches.forEach((m, i) => {
     svgBody += conn(r16X + BW, r16Y[i*2], r16Y[i*2+1], qfX, qfY[i]);
-    svgBody += box(qfX, qfY[i], m.home, m.away, 'qf', m.id, '');
+    svgBody += box(qfX, qfY[i], getBracketTeam(m.id,'home',m.home), getBracketTeam(m.id,'away',m.away), 'qf', m.id, '');
   });
 
   // QF → SF connectors + SF boxes
   sf.matches.forEach((m, i) => {
     svgBody += conn(qfX + BW, qfY[i*2], qfY[i*2+1], sfX, sfY[i]);
-    svgBody += box(sfX, sfY[i], m.home, m.away, 'sf', m.id, '');
+    svgBody += box(sfX, sfY[i], getBracketTeam(m.id,'home',m.home), getBracketTeam(m.id,'away',m.away), 'sf', m.id, '');
   });
 
   // SF → Final connector + Final box
   const finalM = fin.matches.find(m => m.id === 'finalm1') || fin.matches[0];
   svgBody += conn(sfX + BW, sfY[0], sfY[1], finX, finY);
-  svgBody += box(finX, finY, finalM.home, finalM.away, 'final', finalM.id, '🏆 FINAL');
+  svgBody += box(finX, finY, getBracketTeam(finalM.id,'home',finalM.home), getBracketTeam(finalM.id,'away',finalM.away), 'final', finalM.id, '🏆 FINAL');
 
   const bracketSvg = `
     <div style="overflow-x:auto;background:${clr.bgPage};border-radius:12px;border:1px solid ${clr.border};padding:16px">
@@ -2320,18 +2625,19 @@ function renderBracket() {
   let thirdHtml = '';
   if (thirdM) {
     const r = res('final', thirdM.id);
-    const hw = r.winner === thirdM.home, aw = r.winner === thirdM.away;
+    const ht = getBracketTeam(thirdM.id,'home',thirdM.home), at = getBracketTeam(thirdM.id,'away',thirdM.away);
+    const hw = r.winner === ht, aw = r.winner === at;
     thirdHtml = `
       <div class="card" style="margin-top:16px;border-color:rgba(205,127,50,0.4)">
         <div class="card-title" style="color:#CD7F32">🥉 3rd Place Match</div>
         <div class="bracket-match ${r.winner?'has-result':''}">
           <div class="bracket-team ${hw?'winner':r.winner?'loser':''}">
-            <span>${F(thirdM.home)} ${thirdM.home}</span>
+            <span>${F(ht)} ${ht}</span>
             ${r.winner ? `<span class="bracket-score">${r.score_home??''}</span>` : ''}
           </div>
           <div class="bracket-vs">vs</div>
           <div class="bracket-team ${aw?'winner':r.winner?'loser':''}">
-            <span>${F(thirdM.away)} ${thirdM.away}</span>
+            <span>${F(at)} ${at}</span>
             ${r.winner ? `<span class="bracket-score">${r.score_away??''}</span>` : ''}
           </div>
         </div>
@@ -2346,11 +2652,12 @@ function renderBracket() {
       <div class="bracket-grid">
         ${r32.matches.map(m => {
           const r = res('r32', m.id);
-          const hw = r.winner === m.home, aw = r.winner === m.away;
+          const ht = getBracketTeam(m.id,'home',m.home), at = getBracketTeam(m.id,'away',m.away);
+          const hw = r.winner === ht, aw = r.winner === at;
           return `<div class="bracket-match ${r.winner?'has-result':''}">
-            <div class="bracket-team ${hw?'winner':r.winner?'loser':''}">${F(m.home)} ${m.home}${r.winner?` <span class="bracket-score">${r.score_home??''}</span>`:''}</div>
+            <div class="bracket-team ${hw?'winner':r.winner?'loser':''}">${F(ht)} ${ht}${r.winner?` <span class="bracket-score">${r.score_home??''}</span>`:''}</div>
             <div class="bracket-vs">vs</div>
-            <div class="bracket-team ${aw?'winner':r.winner?'loser':''}">${F(m.away)} ${m.away}${r.winner?` <span class="bracket-score">${r.score_away??''}</span>`:''}</div>
+            <div class="bracket-team ${aw?'winner':r.winner?'loser':''}">${F(at)} ${at}${r.winner?` <span class="bracket-score">${r.score_away??''}</span>`:''}</div>
           </div>`;
         }).join('')}
       </div>
@@ -2431,6 +2738,7 @@ function render() {
   switch(S.page) {
     case 'dashboard':   content = renderDashboard(); break;
     case 'picks':       content = renderPicks(); break;
+    case 'groups':      content = renderGroups(); break;
     case 'bracket':     content = renderBracket(); break;
     case 'leaderboard': content = renderLeaderboard(); break;
     case 'admin':       content = renderAdmin(); break;
@@ -2547,6 +2855,28 @@ function attachEvents() {
     };
   });
 
+  // Admin: set lock/unlock schedule
+  document.querySelectorAll('[data-action="set-lock-schedule"]').forEach(inp => {
+    inp.onchange = () => {
+      const { rid, type } = inp.dataset;
+      if (!S.lockSchedules[rid]) S.lockSchedules[rid] = {};
+      S.lockSchedules[rid][type] = inp.value ? new Date(inp.value).toISOString() : '';
+      if (!S.lockSchedules[rid][type]) delete S.lockSchedules[rid][type];
+      saveLockSchedules();
+      render();
+    };
+  });
+
+  // Admin: clear lock/unlock schedule
+  document.querySelectorAll('[data-action="clear-lock-schedule"]').forEach(btn => {
+    btn.onclick = () => {
+      const { rid, type } = btn.dataset;
+      if (S.lockSchedules[rid]) delete S.lockSchedules[rid][type];
+      saveLockSchedules();
+      render();
+    };
+  });
+
   // Admin: adjust kickoff time for delayed matches
   document.querySelectorAll('[data-action="set-kickoff"]').forEach(inp => {
     inp.onchange = () => {
@@ -2626,6 +2956,28 @@ function attachEvents() {
   document.querySelectorAll('[data-action="pt-result-winner"]').forEach(sel => {
     sel.onchange = async () => {
       await upsertBonusResult('pt', 'pt_winner', sel.value);
+      render();
+    };
+  });
+
+  // Admin: bracket team name inputs
+  document.querySelectorAll('[data-action="bracket-team"]').forEach(inp => {
+    inp.onblur = () => {
+      const { mid, side } = inp.dataset;
+      if (!S.bracketTeams[mid]) S.bracketTeams[mid] = {};
+      const val = inp.value.trim();
+      if (val) S.bracketTeams[mid][side] = val;
+      else delete S.bracketTeams[mid][side];
+      if (!S.bracketTeams[mid].home && !S.bracketTeams[mid].away) delete S.bracketTeams[mid];
+      saveBracketTeams();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-action="clear-bracket-team"]').forEach(btn => {
+    btn.onclick = () => {
+      delete S.bracketTeams[btn.dataset.mid];
+      saveBracketTeams();
       render();
     };
   });
@@ -2866,6 +3218,9 @@ async function init() {
     await loadAllData();
   }
   render();
+
+  // Check lock schedules every 30 seconds
+  setInterval(checkLockSchedules, 30000);
 
   // React to login/logout events
   sb.auth.onAuthStateChange(async (event, session) => {
