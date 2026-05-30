@@ -342,7 +342,28 @@ body.light-mode .modal-header{background:#f0ece4;}
 .modal-avatar{width:80px;height:80px;display:flex;align-items:center;
   justify-content:center;font-size:32px;font-weight:700;margin:0 auto 12px;
   background:linear-gradient(135deg,var(--blue),var(--purple));
-  border:1px solid var(--border2);}
+  border:1px solid var(--border2);overflow:hidden;}
+.modal-avatar img{width:100%;height:100%;object-fit:cover;}
+/* Leaderboard avatar */
+.lb-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;
+  border:1px solid var(--border2);flex-shrink:0;}
+.lb-avatar-initials{width:28px;height:28px;border-radius:50%;display:inline-flex;
+  align-items:center;justify-content:center;font-size:10px;font-weight:700;
+  background:linear-gradient(135deg,var(--blue),var(--purple));
+  border:1px solid var(--border2);flex-shrink:0;color:#fff;}
+/* Sidebar avatar */
+.sidebar-avatar-wrap{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+.sidebar-avatar{width:48px;height:48px;border-radius:50%;object-fit:cover;
+  border:1px solid var(--border2);flex-shrink:0;}
+.sidebar-avatar-initials{width:48px;height:48px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:18px;font-weight:700;
+  background:linear-gradient(135deg,var(--blue),var(--purple));
+  border:1px solid var(--border2);flex-shrink:0;color:#fff;}
+.avatar-upload-label{font-size:10px;font-family:var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);cursor:pointer;
+  border:1px solid var(--faint);padding:4px 10px;transition:all .2s;display:inline-block;}
+.avatar-upload-label:hover{border-color:var(--gold);color:var(--gold);}
+#avatar-file-input{display:none;}
 .modal-stat-row{display:flex;gap:2px;margin-bottom:16px;}
 .modal-stat{text-align:center;flex:1;padding:14px 8px;
   background:rgba(255,255,255,0.03);border:1px solid var(--border2);}
@@ -1046,7 +1067,11 @@ function showPlayerModal(profile) {
     <div class="modal-box" onclick="event.stopPropagation()">
       <div class="modal-header">
         <button class="modal-close" id="modal-close-btn">✕</button>
-        <div class="modal-avatar">${initials(getName(profile))}</div>
+        <div class="modal-avatar">
+          ${profile.avatar_url
+            ? `<img src="${profile.avatar_url}" alt="avatar">`
+            : initials(getName(profile))}
+        </div>
         <h2 style="color:#fff;margin:0 0 2px;font-size:20px">${getName(profile)}</h2>
         ${profile.nickname ? `<p style="color:#666;font-size:12px;margin:0 0 8px">${profile.name}</p>` : ''}
         <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.07);padding:5px 14px;border-radius:20px">
@@ -1235,7 +1260,21 @@ function renderShell(content) {
       </div>
       <div class="sidebar-section">
         <p class="sidebar-section-label">Account</p>
-        <div style="color:var(--muted);font-size:13px;margin-bottom:10px">${dispName}</div>
+        <div class="sidebar-avatar-wrap">
+          ${S.profile?.avatar_url
+            ? `<img src="${S.profile.avatar_url}" class="sidebar-avatar" alt="avatar">`
+            : `<div class="sidebar-avatar-initials">${(dispName||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>`}
+          <div>
+            <div style="color:var(--text);font-size:13px;margin-bottom:6px">${dispName}</div>
+            ${S.user?.id !== 'admin_pin' ? `
+              <label class="avatar-upload-label" for="avatar-file-input" id="avatar-upload-label">
+                ${S.profile?.avatar_url ? '🔄 Change Photo' : '📷 Add Photo'}
+              </label>
+              <input type="file" id="avatar-file-input" accept="image/*">
+              <div id="avatar-status" style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)"></div>
+            ` : ''}
+          </div>
+        </div>
         <button class="sidebar-nav-btn" id="sidebar-signout">Sign Out</button>
       </div>
     </div>
@@ -1582,7 +1621,10 @@ function renderLeaderboard() {
     return `<tr class="${i===0?'gold-row':''} ${isMe?'me-row':''}" data-uid="${p.id}" style="cursor:pointer${isMe?';outline:1px solid rgba(232,213,163,0.35)':''}">
       <td><span class="rank-icon">${medal(p.rank)}</span></td>
       <td>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${p.avatar_url
+            ? `<img src="${p.avatar_url}" class="lb-avatar" alt="">`
+            : `<span class="lb-avatar-initials">${(p.nickname||p.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</span>`}
           <span${isMe?' style="color:var(--gold);font-weight:500"':''}>${p.nickname||p.name}${isMe?' <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">(you)</span>':''}</span>
           <span class="ach-icons">${achIcons(p)}</span>
         </div>
@@ -2898,6 +2940,53 @@ function attachEvents() {
   document.querySelectorAll('[data-r]').forEach(btn => {
     btn.onclick = () => { S.activeRound = btn.dataset.r; render(); };
   });
+
+  // Avatar upload
+  const avatarInput = document.getElementById('avatar-file-input');
+  const avatarStatus = document.getElementById('avatar-status');
+  if (avatarInput) {
+    avatarInput.onchange = async () => {
+      const file = avatarInput.files[0];
+      if (!file) return;
+      avatarStatus.textContent = 'Uploading…';
+      try {
+        // Resize to 160×160 via canvas
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const img = new Image();
+            img.onload = () => {
+              const SIZE = 160;
+              const canvas = document.createElement('canvas');
+              canvas.width = SIZE; canvas.height = SIZE;
+              const ctx = canvas.getContext('2d');
+              // Centre-crop
+              const minDim = Math.min(img.width, img.height);
+              const sx = (img.width  - minDim) / 2;
+              const sy = (img.height - minDim) / 2;
+              ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, SIZE, SIZE);
+              resolve(canvas.toDataURL('image/jpeg', 0.8));
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const { error } = await sb.from('profiles').update({ avatar_url: base64 }).eq('id', S.user.id);
+        if (error) throw error;
+        // Update local state
+        S.profile.avatar_url = base64;
+        S.profiles = S.profiles.map(p => p.id === S.user.id ? { ...p, avatar_url: base64 } : p);
+        avatarStatus.textContent = '✓ Saved';
+        // Re-render shell to show new avatar in sidebar
+        render();
+      } catch (err) {
+        avatarStatus.textContent = '✗ Failed — try a smaller image';
+        console.error(err);
+      }
+    };
+  }
 
   // Manual per-match lock toggles (admin only)
   document.querySelectorAll('[data-action="toggle-match-lock"]').forEach(btn => {
