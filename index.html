@@ -603,6 +603,9 @@ const S = {
   ptSettings: { winnerPts: 10 }, // pre-tournament settings
   lockSchedules: {},  // rid → { lockAt: ISO string, unlockAt: ISO string }
   bracketTeams: {},   // mid → { home: string, away: string }
+  customRules: null,  // string | null — stored in localStorage 'wc26:customRules'
+  rulesEditing: false,
+  manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -669,6 +672,14 @@ function loadLocalSettings() {
   try {
     const bt = localStorage.getItem('wc26:bracketTeams');
     if (bt) S.bracketTeams = JSON.parse(bt);
+  } catch {}
+  try {
+    const cr = localStorage.getItem('wc26:customRules');
+    if (cr) S.customRules = cr;
+  } catch {}
+  try {
+    const ml = localStorage.getItem('wc26:manualMatchLocks');
+    if (ml) S.manualMatchLocks = JSON.parse(ml);
   } catch {}
 }
 
@@ -1409,6 +1420,7 @@ function renderPicks() {
   // ── Regular round render ───────────────────────────────────────
   const isMatchLocked = m => {
     if (locked) return true;
+    if (S.manualMatchLocks[m.id]) return true;
     const ko = getKickoff(m.id, m.kickoff);
     if (!ko) return false;
     return Date.now() >= new Date(ko).getTime() - 3600000;
@@ -1465,7 +1477,16 @@ function renderPicks() {
       else                   pts = `<span class="pts-badge pts-bad">0 pts</span>`;
     }
 
-    const cdBadge = (isAdmin || isPinAdmin) ? '' : matchCountdown(getKickoff(m.id, m.kickoff));
+    const guessClosed = `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--red);border:1px solid rgba(217,79,61,0.4);padding:3px 10px;white-space:nowrap">⛔ Guess Closed</span>`;
+    const cdBadge = (isAdmin || isPinAdmin) ? '' : (isMatchLocked(m) ? guessClosed : matchCountdown(getKickoff(m.id, m.kickoff)));
+    const manualLocked = !!S.manualMatchLocks[m.id];
+    const adminLockBtn = (isAdmin || isPinAdmin) ? `<button
+      class="lock-badge ${manualLocked ? 'locked' : 'countdown'}"
+      data-action="toggle-match-lock" data-mid="${m.id}"
+      title="${manualLocked ? 'Manually locked — click to unlock' : 'Click to manually lock this match'}"
+      style="cursor:pointer;border:none;background:transparent;font-size:inherit;padding:3px 8px">
+      ${manualLocked ? '🔒 Locked' : '🔓 Unlock'}
+    </button>` : '';
 
     return `<div class="match-row">
       ${teamBtn(homeTeam,false)}
@@ -1488,6 +1509,7 @@ function renderPicks() {
       </div>
       ${pts}
       ${cdBadge}
+      ${adminLockBtn}
     </div>`;
   }).join('');
 
@@ -2770,59 +2792,85 @@ function renderResults() {
     </div>` : ''}`;
 }
 
-function renderRules() {
+function getDefaultRulesText() {
   const winPts = S.ptSettings?.winnerPts ?? 10;
-  const rows = [
-    ['⚽ Correct winner pick', '2 pts'],
-    ['🎯 Exact score — does NOT require correct winner', '+1 pt'],
-    ['⭐ Bonus questions — base value varies by round (3 pts standard, higher in later rounds)', '3–5 pts'],
-    ['💰 Knockout wager — correct', 'base pts + wager'],
-    ['💀 Knockout wager — wrong', '−wager only'],
-    ['🏆 Pre-tournament: group top-2 correct spot', '2 pts each'],
-    ['🏆 Pre-tournament: group top-2 right team wrong spot', '1 pt each'],
-    [`🏆 Pre-tournament: tournament winner`, `${winPts} pts`],
-  ];
+  return `⚽ Match Picks
+Pick the winner of every match. Group stage matches can end in a Draw. Correct winner = 2 pts. Predict the exact final score for a bonus +1 pt — this is awarded independently, even if your winner pick was wrong.
+
+⭐ Bonus Questions
+Each round has bonus questions worth a set number of points. Base value is 3 pts in most rounds, rising to 4 pts in the Semi-Finals and 5 pts in the Final. The admin can also apply a round multiplier to increase all bonus points.
+
+💰 Knockout Wagers
+From Round of 32 onwards, wager up to 2× the base points on each bonus question. Get it right = base pts + wager. Get it wrong = −wager only (match pick points are safe).
+
+🏆 Pre-Tournament Picks
+Before the tournament, predict the top 2 finishers for all 12 groups (in order) and pick the overall winner. Correct team in the correct spot = 2 pts. Correct team in the wrong spot = 1 pt. Tournament winner correct = ${winPts} pts.
+
+🏆 Tiebreakers
+1. Most correct match picks
+2. Most exact scores
+3. Earliest registration
+
+📊 Points Summary
+⚽ Correct winner pick — 2 pts
+🎯 Exact score (independent of winner) — +1 pt
+⭐ Bonus questions — 3–5 pts
+💰 Knockout wager correct — base pts + wager
+💀 Knockout wager wrong — −wager only
+🏆 Pre-tournament group top-2 correct spot — 2 pts each
+🏆 Pre-tournament group top-2 right team wrong spot — 1 pt each
+🏆 Pre-tournament tournament winner — ${winPts} pts`;
+}
+
+function renderRules() {
+  const isAdmin = S.profile?.is_admin;
+  const editing = S.rulesEditing;
+  const text = S.customRules ?? getDefaultRulesText();
+  const hasCustom = S.customRules !== null;
+
+  if (editing && isAdmin) {
+    return `
+      <div class="page-title">📋 Pool Rules</div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:10px">Edit Rules</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:14px;font-family:var(--mono);letter-spacing:.05em">
+          Plain text only. Use blank lines to separate sections. All players see this.
+        </p>
+        <textarea id="rules-editor" class="input" style="min-height:420px;resize:vertical;font-size:13px;line-height:1.7;font-family:var(--sans)">${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn-gold" id="rules-save-btn">Save Rules</button>
+          <button class="btn btn-outline" id="rules-cancel-btn">Cancel</button>
+          ${hasCustom ? `<button class="btn btn-danger" id="rules-reset-btn" style="margin-left:auto">Reset to Default</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  // Render saved/default text — split on blank lines into paragraphs
+  const sections = text.split(/\n{2,}/).map(block => {
+    const lines = block.trim().split('\n');
+    const heading = lines[0];
+    const body = lines.slice(1).join('\n').trim();
+    const isHeading = /^[⚽⭐💰🏆📊💀🎯]/.test(heading);
+    if (isHeading) {
+      return `
+        <div style="margin-bottom:20px">
+          <h3 style="color:var(--text);font-size:15px;margin-bottom:8px">${heading}</h3>
+          ${body ? `<p style="color:var(--muted);font-size:14px;line-height:1.7;white-space:pre-line">${body}</p>` : ''}
+        </div>`;
+    }
+    return `<p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px;white-space:pre-line">${block.trim()}</p>`;
+  }).join('');
+
   return `
-    <div class="page-title">📋 Pool Rules</div>
-    <div class="card">
-      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">⚽ Match Picks</h3>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
-        Pick the winner of every match. Group stage matches can end in a <strong>Draw</strong>.
-        Correct winner = <strong style="color:var(--gold)">2 pts</strong>.
-        Predict the exact final score for a bonus <strong style="color:#ce93d8">+1 pt</strong> —
-        this is awarded independently, even if your winner pick was wrong.
-      </p>
-      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">⭐ Bonus Questions</h3>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
-        Each round has bonus questions worth a set number of points. Base value is
-        <strong style="color:var(--gold)">3 pts</strong> in most rounds, rising to
-        <strong style="color:var(--gold)">4 pts</strong> in the Semi-Finals and
-        <strong style="color:var(--gold)">5 pts</strong> in the Final.
-        The admin can also apply a round multiplier to increase all bonus points.
-      </p>
-      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">💰 Knockout Wagers</h3>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
-        From Round of 32 onwards, wager up to 2× the base points on each bonus question.
-        Get it right = base pts + wager. Get it wrong = −wager only (match pick points are safe).
-      </p>
-      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">🏆 Pre-Tournament Picks</h3>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
-        Before the tournament, predict the top 2 finishers for all 12 groups (in order) and pick the overall winner.
-        Correct team in the correct spot = <strong style="color:var(--gold)">2 pts</strong>.
-        Correct team in the wrong spot = <strong style="color:#90caf9">1 pt</strong>.
-        Tournament winner correct = <strong style="color:var(--gold)">${winPts} pts</strong>.
-      </p>
-      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">🏆 Tiebreakers</h3>
-      <ol style="color:var(--muted);font-size:14px;padding-left:20px;line-height:2">
-        <li>Most correct match picks</li><li>Most exact scores</li><li>Earliest registration</li>
-      </ol>
-      <table style="width:100%;border-collapse:collapse;margin-top:20px;font-size:13px">
-        <tbody>${rows.map(([l,p])=>`<tr style="border-bottom:1px solid var(--border2)">
-          <td style="padding:8px 0;color:var(--muted)">${l}</td>
-          <td style="padding:8px 0;text-align:right;color:var(--gold);font-weight:700;white-space:nowrap;padding-left:12px">${p}</td>
-        </tr>`).join('')}</tbody>
-      </table>
-    </div>`;
+    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+      <div class="page-title" style="margin-bottom:0">📋 Pool Rules</div>
+      ${isAdmin ? `
+        <div style="display:flex;gap:8px;margin-left:auto">
+          ${hasCustom ? `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);align-self:center">custom</span>` : ''}
+          <button class="btn btn-outline btn-sm" id="rules-edit-btn">✏️ Edit Rules</button>
+        </div>` : ''}
+    </div>
+    <div class="card">${sections}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2850,6 +2898,43 @@ function attachEvents() {
   document.querySelectorAll('[data-r]').forEach(btn => {
     btn.onclick = () => { S.activeRound = btn.dataset.r; render(); };
   });
+
+  // Manual per-match lock toggles (admin only)
+  document.querySelectorAll('[data-action="toggle-match-lock"]').forEach(btn => {
+    btn.onclick = () => {
+      const mid = btn.dataset.mid;
+      if (S.manualMatchLocks[mid]) {
+        delete S.manualMatchLocks[mid];
+      } else {
+        S.manualMatchLocks[mid] = true;
+      }
+      localStorage.setItem('wc26:manualMatchLocks', JSON.stringify(S.manualMatchLocks));
+      render();
+    };
+  });
+
+  // Rules page — edit / save / cancel / reset
+  const rulesEditBtn   = document.getElementById('rules-edit-btn');
+  const rulesSaveBtn   = document.getElementById('rules-save-btn');
+  const rulesCancelBtn = document.getElementById('rules-cancel-btn');
+  const rulesResetBtn  = document.getElementById('rules-reset-btn');
+  if (rulesEditBtn) rulesEditBtn.onclick = () => { S.rulesEditing = true; render(); };
+  if (rulesCancelBtn) rulesCancelBtn.onclick = () => { S.rulesEditing = false; render(); };
+  if (rulesSaveBtn) rulesSaveBtn.onclick = () => {
+    const val = document.getElementById('rules-editor')?.value?.trim();
+    if (!val) return;
+    S.customRules = val;
+    localStorage.setItem('wc26:customRules', val);
+    S.rulesEditing = false;
+    render();
+  };
+  if (rulesResetBtn) rulesResetBtn.onclick = () => {
+    if (!confirm('Reset rules to the default scoring text? Your custom version will be deleted.')) return;
+    S.customRules = null;
+    localStorage.removeItem('wc26:customRules');
+    S.rulesEditing = false;
+    render();
+  };
 
   // Team pick buttons
   document.querySelectorAll('[data-action="pick"]').forEach(btn => {
