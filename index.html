@@ -799,13 +799,17 @@ function calcScore(uid) {
 }
 
 function getLeaderboard() {
-  return S.profiles
+  const sorted = S.profiles
     .map(p => ({ ...p, ...calcScore(p.id) }))
-    .sort((a,b) => b.total - a.total || b.correctPicks - a.correctPicks || b.exactScores - a.exactScores)
-    .map((p, i, arr) => {
-      const tied = i > 0 && p.total === arr[i-1].total && p.correctPicks === arr[i-1].correctPicks && p.exactScores === arr[i-1].exactScores;
-      return { ...p, rank: tied ? arr[i-1].rank : i + 1 };
-    });
+    .sort((a,b) => b.total - a.total || b.correctPicks - a.correctPicks || b.exactScores - a.exactScores);
+  const result = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    const prev = result[i - 1];
+    const tied = i > 0 && p.total === sorted[i-1].total && p.correctPicks === sorted[i-1].correctPicks && p.exactScores === sorted[i-1].exactScores;
+    result.push({ ...p, rank: tied ? prev.rank : i + 1 });
+  }
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1186,12 +1190,13 @@ function renderShell(content) {
   const isAdmin = S.profile?.is_admin;
   const dispName = S.profile?.nickname || S.profile?.name || S.user?.email;
   const tabs = [
+    ...(isAdmin ? [{ id:'admin', label:'⚙️ Admin' }] : []),
     { id:'dashboard', label:'Dashboard' },
     { id:'picks', label:'My Picks' },
+    { id:'leaderboard', label:'Leaderboard' },
+    { id:'results', label:'Results' },
     { id:'groups', label:'Groups' },
     { id:'bracket', label:'Bracket' },
-    { id:'leaderboard', label:'Leaderboard' },
-    ...(isAdmin ? [{ id:'admin', label:'⚙️ Admin' }] : []),
     { id:'rules', label:'Rules' },
   ];
   document.getElementById('app').innerHTML = `
@@ -2674,6 +2679,97 @@ function renderBracket() {
 }
 
 // ── Rules ─────────────────────────────────────────────────────────
+function renderResults() {
+  const roundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
+
+  // Active round pill
+  if (!roundIds.includes(S.activeRound)) S.activeRound = 'gs1';
+  const rid = S.activeRound;
+  const round = ROUNDS[rid];
+
+  const pills = roundIds.map(r => {
+    const hasAny = Object.keys(S.results[r] || {}).length > 0;
+    return `<button class="pill ${r===rid?'active':''}" data-r="${r}">${ROUNDS[r].label}${hasAny?' ✓':''}</button>`;
+  }).join('');
+
+  // Match results
+  const matchRows = round.matches.map(m => {
+    const r = S.results[rid]?.[m.id] || {};
+    const homeTeam = getBracketTeam(m.id, 'home', m.home);
+    const awayTeam = getBracketTeam(m.id, 'away', m.away);
+    const hasResult = r.winner !== undefined && r.winner !== '';
+    const hasScore  = r.score_home !== '' && r.score_home !== undefined && r.score_away !== '' && r.score_away !== undefined;
+
+    const scoreStr = hasScore ? `${r.score_home} – ${r.score_away}` : '— : —';
+    const winnerHighlight = (team) => {
+      if (!hasResult) return `color:var(--text)`;
+      return r.winner === team ? `color:var(--gold);font-weight:500` :
+             r.winner === 'Draw' ? `color:#90caf9` : `color:var(--muted)`;
+    };
+    const drawBadge = hasResult && r.winner === 'Draw'
+      ? `<span style="font-size:10px;font-family:var(--mono);color:#90caf9;border:1px solid #90caf9;padding:1px 6px;margin:0 6px">DRAW</span>` : '';
+
+    const kickoffDate = (() => {
+      const d = new Date(getKickoff(m.id, m.kickoff));
+      return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' + d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    })();
+
+    return `<tr style="border-bottom:1px solid var(--border2)">
+      <td style="padding:10px 8px;font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap">${kickoffDate}</td>
+      <td style="padding:10px 8px;text-align:right;${winnerHighlight(homeTeam)}">${homeTeam}</td>
+      <td style="padding:10px 12px;text-align:center;font-family:var(--mono);font-size:13px;white-space:nowrap">
+        ${hasResult ? `<span style="color:var(--gold);font-weight:600">${scoreStr}</span>${drawBadge}` : `<span style="color:var(--muted)">${scoreStr}</span>`}
+      </td>
+      <td style="padding:10px 8px;${winnerHighlight(awayTeam)}">${awayTeam}</td>
+    </tr>`;
+  }).join('');
+
+  // Bonus results
+  const bonusQs = getActiveQuestions(rid);
+  const bonusRows = bonusQs.map(bq => {
+    const ans = S.bonusResults[rid]?.[bq.id]?.answer || '';
+    return `<tr style="border-bottom:1px solid var(--border2)">
+      <td style="padding:10px 8px;color:var(--muted);font-size:13px;line-height:1.5">${bq.text}</td>
+      <td style="padding:10px 8px;text-align:right;white-space:nowrap">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-right:8px">${bq.pts} pts</span>
+        ${ans
+          ? `<span style="color:var(--gold);font-family:var(--mono);font-size:12px;font-weight:600">${ans}</span>`
+          : `<span style="color:var(--muted);font-size:12px;font-family:var(--mono)">—</span>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const noMatches = round.matches.length === 0;
+
+  return `
+    <div class="page-title">📊 Results</div>
+    <div class="pill-row">${pills}</div>
+
+    <div class="card">
+      <div class="card-title">${round.label} — Match Results</div>
+      ${noMatches ? `<p style="color:var(--muted);font-size:13px">No matches in this round.</p>` : `
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border2)">
+            <th style="padding:6px 8px;text-align:left;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:400">KICKOFF</th>
+            <th style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:400">HOME</th>
+            <th style="padding:6px 8px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:400">SCORE</th>
+            <th style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:400">AWAY</th>
+          </tr>
+        </thead>
+        <tbody>${matchRows}</tbody>
+      </table>`}
+    </div>
+
+    ${bonusQs.length > 0 ? `
+    <div class="card">
+      <div class="card-title">${round.label} — Bonus Questions</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tbody>${bonusRows}</tbody>
+      </table>
+    </div>` : ''}`;
+}
+
 function renderRules() {
   const winPts = S.ptSettings?.winnerPts ?? 10;
   const rows = [
@@ -2741,6 +2837,7 @@ function render() {
     case 'groups':      content = renderGroups(); break;
     case 'bracket':     content = renderBracket(); break;
     case 'leaderboard': content = renderLeaderboard(); break;
+    case 'results':     content = renderResults(); break;
     case 'admin':       content = renderAdmin(); break;
     case 'rules':       content = renderRules(); break;
   }
