@@ -395,6 +395,22 @@ const FLAG = {
 };
 const F = t => FLAG[t] || '⚽';
 
+// WC 2026 groups (A–L, 4 teams each)
+const GROUPS = {
+  A:['Mexico','South Africa','South Korea','Czechia'],
+  B:['Canada','Bosnia-Herzegovina','Qatar','Switzerland'],
+  C:['Brazil','Morocco','Haiti','Scotland'],
+  D:['USA','Paraguay','Australia','Türkiye'],
+  E:['Germany','Curaçao','Ivory Coast','Ecuador'],
+  F:['Netherlands','Japan','Sweden','Tunisia'],
+  G:['Spain','Cape Verde','Saudi Arabia','Uruguay'],
+  H:['Belgium','Egypt','Iran','New Zealand'],
+  I:['France','Senegal','Iraq','Norway'],
+  J:['Argentina','Algeria','Austria','Jordan'],
+  K:['Portugal','DR Congo','Uzbekistan','Colombia'],
+  L:['England','Croatia','Ghana','Panama'],
+};
+
 const ACHIEVEMENTS = {
   perfectRound: { icon:'⚡', label:'Perfect Round',  color:'#ff7043', desc:'Got every match pick correct in a single round' },
   oracle:       { icon:'🔮', label:'Oracle',         color:'#ce93d8', desc:'Answered 3+ bonus questions correctly in a single round' },
@@ -408,6 +424,7 @@ const ACHIEVEMENTS = {
 
 // Kickoff times in UTC (ESPN source, EDT = UTC-4). Matches sorted by actual kickoff order.
 const ROUNDS = {
+  pt:{label:"Pre-Tournament",id:"pt",knockout:false,dateRange:"Before Jun 11",special:'pretournament',matches:[],bonusQuestions:[]},
   gs1:{label:"Group Stage – Round 1",id:"gs1",knockout:false,dateRange:"Jun 11 – Jun 17",matches:[
     {id:"m1", home:"Mexico",             away:"South Africa",       kickoff:"2026-06-11T19:00:00Z"}, // Jun11 3pm ET
     {id:"m2", home:"South Korea",        away:"Czechia",            kickoff:"2026-06-12T02:00:00Z"}, // Jun11 10pm ET
@@ -580,8 +597,10 @@ const S = {
   selectedPlayer: null,
   adminTab: 'results',
   adminQFilter: 'All',
-  customBonusQs: {},  // rid → [{id,text,pts,opts}]
-  multipliers: {},    // rid → {match: number, bonus: number}
+  customBonusQs: {},      // rid → [{id,text,pts,opts}]
+  multipliers: {},        // rid → {match: number, bonus: number}
+  kickoffOverrides: {},   // mid → ISO string (admin edits for delayed matches)
+  ptSettings: { winnerPts: 10 }, // pre-tournament settings
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -603,6 +622,14 @@ function saveMultipliers() {
   localStorage.setItem('wc26:multipliers', JSON.stringify(S.multipliers));
 }
 
+function saveKickoffOverrides() {
+  localStorage.setItem('wc26:kickoffOverrides', JSON.stringify(S.kickoffOverrides));
+}
+
+function savePtSettings() {
+  localStorage.setItem('wc26:ptSettings', JSON.stringify(S.ptSettings));
+}
+
 function loadLocalSettings() {
   try {
     const cq = localStorage.getItem('wc26:customBonusQs');
@@ -612,6 +639,27 @@ function loadLocalSettings() {
     const ml = localStorage.getItem('wc26:multipliers');
     if (ml) S.multipliers = JSON.parse(ml);
   } catch {}
+  try {
+    const ko = localStorage.getItem('wc26:kickoffOverrides');
+    if (ko) S.kickoffOverrides = JSON.parse(ko);
+  } catch {}
+  try {
+    const ps = localStorage.getItem('wc26:ptSettings');
+    if (ps) S.ptSettings = { ...S.ptSettings, ...JSON.parse(ps) };
+  } catch {}
+}
+
+// Returns the effective kickoff ISO string for a match (override takes priority)
+function getKickoff(mid, defaultKickoff) {
+  return S.kickoffOverrides[mid] || defaultKickoff || null;
+}
+
+// Convert UTC ISO string → datetime-local input value (local time)
+function toDatetimeLocal(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function matchCountdown(kickoff) {
@@ -636,19 +684,35 @@ function matchCountdown(kickoff) {
 // ════════════════════════════════════════════════════════════════
 function calcScore(uid) {
   let total = 0, correctPicks = 0, exactScores = 0;
+
+  // Pre-tournament picks scoring
+  const ptBa = S.bonusAnswers[uid]?.['pt'] || {};
+  const ptBr = S.bonusResults['pt'] || {};
+  for (const g of Object.keys(GROUPS)) {
+    const p1 = ptBa[`pt_${g}_1`]?.answer, p2 = ptBa[`pt_${g}_2`]?.answer;
+    const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
+    if (!r1 && !r2) continue;
+    const qualified = new Set([r1, r2].filter(Boolean));
+    if (p1) { if (p1 === r1) total += 2; else if (r1 && qualified.has(p1)) total += 1; }
+    if (p2) { if (p2 === r2) total += 2; else if (r2 && qualified.has(p2)) total += 1; }
+  }
+  const winPts = S.ptSettings?.winnerPts ?? 10;
+  const winPick = ptBa['pt_winner']?.answer, winRes = ptBr['pt_winner']?.answer;
+  if (winPick && winRes && winPick === winRes) total += winPts;
+
   for (const round of Object.values(ROUNDS)) {
+    if (round.special === 'pretournament') continue;
     const rid = round.id;
     const { match: mMult, bonus: bMult } = getMultipliers(rid);
     for (const m of round.matches) {
       const pick   = S.picks[uid]?.[rid]?.[m.id];
       const result = S.results[rid]?.[m.id];
-      if (!pick || !result || !result.winner || !pick.winner) continue;
-      if (pick.winner === result.winner) {
-        total += 2 * mMult; correctPicks++;
-        const sh = String(pick.score_home), sa = String(pick.score_away);
-        const rh = String(result.score_home), ra = String(result.score_away);
-        if (sh !== '' && sh === rh && sa === ra) { total += 1 * mMult; exactScores++; }
-      }
+      if (!pick || !result || !result.winner) continue;
+      if (pick.winner && pick.winner === result.winner) { total += 2 * mMult; correctPicks++; }
+      // Exact score is independent of winner pick
+      const sh = String(pick.score_home ?? ''), sa = String(pick.score_away ?? '');
+      const rh = String(result.score_home ?? ''), ra = String(result.score_away ?? '');
+      if (sh !== '' && rh !== '' && sh === rh && sa === ra) { total += 1 * mMult; exactScores++; }
     }
     for (const bq of getActiveQuestions(rid)) {
       const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -1129,17 +1193,146 @@ function renderPicks() {
 
   const pillsHtml = Object.values(ROUNDS).map(r => {
     const lk = S.roundSettings[r.id]?.locked;
+    const shortLabel = r.id === 'pt' ? 'Pre-Tournament' : r.label.replace('Group Stage – Round ','GS ');
     return `<button class="pill ${lk?'locked':''} ${S.activeRound===r.id?'active':''}" data-r="${r.id}">
-      ${r.label.replace('Group Stage – Round ','Group Stage ')} ${lk?'🔒':''}
+      ${shortLabel} ${lk?'🔒':''}
     </button>`;
   }).join('');
 
+  // Admin-locked round: hide everything from regular users
+  if (locked && !isAdmin && !isPinAdmin) {
+    return `
+      <div class="page-title">My Picks</div>
+      <div class="pill-row">${pillsHtml}</div>
+      ${round.dateRange ? `<div class="round-dates">📅 ${round.dateRange}</div>` : ''}
+      <div class="card" style="text-align:center;padding:56px 24px;border-color:rgba(255,112,67,0.2)">
+        <div style="font-size:52px;margin-bottom:20px">🔒</div>
+        <div style="font-family:var(--display);font-size:36px;letter-spacing:0.06em;color:#ff7043;margin-bottom:12px">ROUND LOCKED</div>
+        <p style="color:var(--muted);font-size:13px;max-width:320px;margin:0 auto;line-height:1.7">
+          This round is currently locked. Picks are hidden until the admin opens it.
+        </p>
+      </div>`;
+  }
+
+  // ── Pre-Tournament special render ──────────────────────────────
+  if (round.special === 'pretournament') {
+    const winPts = S.ptSettings?.winnerPts ?? 10;
+    const allTeams = Object.values(GROUPS).flat().sort();
+    const maxGroupPts = Object.keys(GROUPS).length * 4; // 12 × 4 = 48
+    const totalMax = maxGroupPts + winPts;
+
+    const groupHtml = Object.entries(GROUPS).map(([g, teams]) => {
+      const p1 = S.bonusAnswers[uid]?.['pt']?.[`pt_${g}_1`]?.answer || '';
+      const p2 = S.bonusAnswers[uid]?.['pt']?.[`pt_${g}_2`]?.answer || '';
+      const r1 = S.bonusResults['pt']?.[`pt_${g}_1`]?.answer || '';
+      const r2 = S.bonusResults['pt']?.[`pt_${g}_2`]?.answer || '';
+      const qualified = new Set([r1, r2].filter(Boolean));
+
+      const badge = (pick, correctPos, hasResults) => {
+        if (!hasResults || !pick) return '';
+        if (pick === correctPos) return `<span class="pts-badge pts-ok">+2 pts ✅</span>`;
+        if (qualified.has(pick)) return `<span class="pts-badge pts-part">+1 pt 🎯</span>`;
+        return `<span class="pts-badge pts-bad">0 pts ❌</span>`;
+      };
+      const hasResults = !!(r1 || r2);
+
+      const opts1 = teams.map(t => `<option value="${t}" ${p1===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+      const opts2 = teams.map(t => `<option value="${t}" ${p2===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+
+      return `<div class="bonus-q">
+        <div class="bonus-q-text" style="font-weight:500;margin-bottom:8px">
+          Group ${g}
+          <span style="font-size:11px;color:var(--muted);font-weight:300"> — ${teams.map(t=>F(t)+' '+t).join(' · ')}</span>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-bottom:4px">1ST PLACE</div>
+            <select class="input" data-action="pt-group" data-g="${g}" data-pos="1"
+              style="padding:7px 10px;font-size:12px;width:auto;cursor:pointer" ${readOnly?'disabled':''}>
+              <option value="">— Select team —</option>${opts1}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-bottom:4px">2ND PLACE</div>
+            <select class="input" data-action="pt-group" data-g="${g}" data-pos="2"
+              style="padding:7px 10px;font-size:12px;width:auto;cursor:pointer" ${readOnly?'disabled':''}>
+              <option value="">— Select team —</option>${opts2}
+            </select>
+          </div>
+          ${badge(p1, r1, hasResults)}
+          ${badge(p2, r2, hasResults)}
+        </div>
+      </div>`;
+    }).join('');
+
+    const winnerPick = S.bonusAnswers[uid]?.['pt']?.['pt_winner']?.answer || '';
+    const winnerRes  = S.bonusResults['pt']?.['pt_winner']?.answer || '';
+    let wBadge = '';
+    if (winnerRes) {
+      wBadge = winnerPick === winnerRes
+        ? `<span class="pts-badge pts-ok">+${winPts} pts ✅</span>`
+        : winnerPick ? `<span class="pts-badge pts-bad">0 pts ❌</span>` : '';
+    }
+    const allTeamOpts = allTeams.map(t => `<option value="${t}" ${winnerPick===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+
+    return `
+      <div class="page-title">My Picks</div>
+      ${isAdmin || isPinAdmin ? `<div class="notice">👁 Admin view — picks are read-only.</div>` : ''}
+      <div class="pill-row">${pillsHtml}</div>
+      <div class="round-dates">📅 Before Jun 11 · Lock in your pre-tournament predictions</div>
+      <div class="notice" style="margin-bottom:16px">
+        🏆 Up for grabs: <strong>${totalMax} pts</strong> — ${maxGroupPts} from group picks (12 groups × max 4 pts) + ${winPts} from tournament winner
+      </div>
+      <div class="card">
+        <div class="card-title">🏆 Group Stage Predictions</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:16px;line-height:1.7">
+          Pick the top 2 finishers from each group <strong style="color:var(--text)">in order</strong>.
+          Correct team in the correct spot = <strong style="color:var(--gold)">2 pts</strong>.
+          Correct team but wrong spot = <strong style="color:#90caf9">1 pt</strong>.
+          Wrong team = 0 pts.
+        </p>
+        <div class="bonus-section" style="padding:0;background:transparent;border:none;margin-top:0">
+          ${groupHtml}
+        </div>
+      </div>
+      <div class="card" style="border-color:rgba(232,213,163,0.2)">
+        <div class="card-title" style="color:var(--gold)">🏆 Tournament Winner</div>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:12px">
+          Who will lift the 2026 World Cup trophy?
+          <strong style="color:var(--gold)">${winPts} pts</strong> for the correct pick.
+        </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <select class="input" data-action="pt-winner" style="max-width:300px;font-size:13px;padding:10px 12px;cursor:pointer" ${readOnly?'disabled':''}>
+            <option value="">— Select champion —</option>${allTeamOpts}
+          </select>
+          ${wBadge}
+        </div>
+      </div>`;
+  }
+
+  // ── Regular round render ───────────────────────────────────────
   const isMatchLocked = m => {
     if (locked) return true;
-    if (!m.kickoff) return false;
-    return Date.now() >= new Date(m.kickoff).getTime() - 3600000;
+    const ko = getKickoff(m.id, m.kickoff);
+    if (!ko) return false;
+    return Date.now() >= new Date(ko).getTime() - 3600000;
   };
   const matchRO = m => isAdmin || isPinAdmin || isMatchLocked(m);
+
+  const { match: mMult, bonus: bMult } = getMultipliers(rid);
+  const bonusQs = getActiveQuestions(rid);
+  const matchMaxPts = round.matches.length * 3 * mMult;
+  const bonusMaxPts = bonusQs.reduce((sum, q) => sum + q.pts * bMult, 0);
+  const totalMax = matchMaxPts + bonusMaxPts;
+  const multNote = (mMult !== 1 || bMult !== 1)
+    ? ` <span style="color:#ff7043;font-size:9px">(×${mMult} match · ×${bMult} bonus multipliers active)</span>` : '';
+  const bonusNote = bonusQs.length
+    ? ` + ${bonusMaxPts} pts (${bonusQs.length} bonus Q${bonusQs.length>1?'s':''})` : '';
+  const ptsHtml = `<div style="background:rgba(232,213,163,0.04);border:1px solid rgba(232,213,163,0.1);
+    padding:8px 14px;margin-bottom:12px;font-size:11px;font-family:var(--mono);color:var(--muted)">
+    🏆 Up for grabs: <strong style="color:var(--gold)">${totalMax} pts</strong> —
+    ${round.matches.length} matches × max 3 pts = ${matchMaxPts}${bonusNote}${multNote}
+  </div>`;
 
   const matchesHtml = round.matches.map(m => {
     const pick   = S.picks[uid]?.[rid]?.[m.id] || {};
@@ -1162,32 +1355,45 @@ function renderPicks() {
       return `<button class="team-btn ${cls}" data-action="pick" data-rid="${rid}" data-mid="${m.id}" data-team="${team}" ${ro?'disabled':''}>${label}</button>`;
     };
 
+    // Exact score is independent of winner
+    const correctWinner = hasResult && winner === rw;
+    const exactScore = hasResult && rsh !== '' && String(sh) === String(rsh) && String(sa) === String(rsa) && sh !== '';
     let pts = '';
     if (hasResult && winner) {
-      const exact = winner===rw && String(sh)===String(rsh) && String(sa)===String(rsa) && rsh!=='';
-      if (exact) pts = '<span class="pts-badge pts-ok">+3 pts</span>';
-      else if (winner===rw) pts = '<span class="pts-badge pts-part">+2 pts</span>';
-      else pts = '<span class="pts-badge pts-bad">0 pts</span>';
+      const earned = (correctWinner ? 2 : 0) + (exactScore ? 1 : 0);
+      if (earned === 3)      pts = `<span class="pts-badge pts-ok">+3 pts</span>`;
+      else if (earned === 2) pts = `<span class="pts-badge pts-part">+2 pts</span>`;
+      else if (earned === 1) pts = `<span class="pts-badge pts-part" style="color:#ce93d8;background:rgba(91,33,182,0.2);border-color:rgba(206,147,216,0.3)">+1 pt</span>`;
+      else                   pts = `<span class="pts-badge pts-bad">0 pts</span>`;
     }
 
-    const cdBadge = (isAdmin || isPinAdmin) ? '' : matchCountdown(m.kickoff);
+    const cdBadge = (isAdmin || isPinAdmin) ? '' : matchCountdown(getKickoff(m.id, m.kickoff));
 
     return `<div class="match-row">
       ${teamBtn(m.home,false)}
       <span class="vs">vs</span>
       ${teamBtn(m.away,false)}
       ${!round.knockout ? teamBtn('Draw',true) : ''}
-      <div class="score-wrap">
-        <input class="score-in" type="number" min="0" max="20" value="${sh}" data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="h" ${ro?'disabled':''}>
-        <span class="vs">–</span>
-        <input class="score-in" type="number" min="0" max="20" value="${sa}" data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="a" ${ro?'disabled':''}>
+      <div class="score-wrap" style="flex-direction:column;gap:2px;align-items:center">
+        <div style="display:flex;gap:2px;align-items:center">
+          <span style="font-size:9px;color:var(--muted);font-family:var(--mono);width:34px;text-align:center">H</span>
+          <span style="font-size:9px;color:var(--faint);font-family:var(--mono);padding:0 2px"> </span>
+          <span style="font-size:9px;color:var(--muted);font-family:var(--mono);width:34px;text-align:center">A</span>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input class="score-in" type="number" min="0" max="20" value="${sh}" placeholder="–"
+            data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="h" ${ro?'disabled':''}>
+          <span class="vs">–</span>
+          <input class="score-in" type="number" min="0" max="20" value="${sa}" placeholder="–"
+            data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="a" ${ro?'disabled':''}>
+        </div>
       </div>
       ${pts}
       ${cdBadge}
     </div>`;
   }).join('');
 
-  const bonusHtml = getActiveQuestions(rid).map(bq => {
+  const bonusHtml = bonusQs.map(bq => {
     const ans   = S.bonusAnswers[uid]?.[rid]?.[bq.id] || {};
     const bres  = S.bonusResults[rid]?.[bq.id]?.answer || '';
     const wager = ans.wager || 0;
@@ -1218,18 +1424,22 @@ function renderPicks() {
 
   return `
     <div class="page-title">My Picks</div>
-    ${isAdmin || isPinAdmin ? `<div class="notice">👁 Admin view — picks are read-only. Admins cannot submit picks.</div>` : readOnly ? `<div class="locked-notice">🔒 This round is locked — picks are read-only.</div>` : ''}
+    ${isAdmin || isPinAdmin ? `<div class="notice">👁 Admin view — picks are read-only. Admins cannot submit picks.</div>` : ''}
     <div class="pill-row">${pillsHtml}</div>
     ${round.dateRange ? `<div class="round-dates">📅 ${round.dateRange}</div>` : ''}
+    ${ptsHtml}
     <div class="card">
       <div class="card-title">${round.label}</div>
-      <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Pick winner (2 pts) + exact score (+1 pt)</p>
+      <p style="color:var(--muted);font-size:11px;margin-bottom:12px">
+        Pick the winner <span style="color:var(--gold)">(2 pts)</span> — then enter the exact score for a bonus
+        <span style="color:#ce93d8">(+1 pt, even if your winner pick is wrong)</span>
+      </p>
       ${matchesHtml}
     </div>
-    <div class="bonus-section">
+    ${bonusQs.length ? `<div class="bonus-section">
       <div class="bonus-title">⭐ Bonus Questions</div>
       ${bonusHtml}
-    </div>`;
+    </div>` : ''}`;
 }
 
 // ── Leaderboard ───────────────────────────────────────────────────
@@ -1300,72 +1510,153 @@ function renderAdmin() {
 
     const pillsHtml = Object.values(ROUNDS).map(r => {
       const lk = S.roundSettings[r.id]?.locked;
+      const shortLabel = r.id === 'pt' ? 'Pre-Tournament' : roundLabel(r);
       return `<button class="pill ${lk?'locked':''} ${S.activeRound===r.id?'active':''}" data-r="${r.id}">
-        ${roundLabel(r)} ${lk?'🔒':''}
+        ${shortLabel} ${lk?'🔒':''}
       </button>`;
     }).join('');
 
-    const matchResultsHtml = round.matches.map(m => {
-      const res  = S.results[rid]?.[m.id] || {};
-      const opts = [m.home, ...(!round.knockout?['Draw']:[]), m.away];
-      const selOpts = opts.map(o => `<option value="${o}" ${res.winner===o?'selected':''}>${o}</option>`).join('');
-      const matchLabel = m.label ? `<span style="font-size:10px;color:#ff7043;margin-left:6px">[${m.label}]</span>` : '';
-      return `<div class="admin-match-row">
-        <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
-        <select class="admin-select" data-action="result-winner" data-rid="${rid}" data-mid="${m.id}">
-          <option value="">– Winner –</option>${selOpts}
-        </select>
-        <input class="admin-score" type="number" min="0" placeholder="H" value="${res.score_home??''}"
-          data-action="result-sh" data-rid="${rid}" data-mid="${m.id}">
-        <span class="vs">–</span>
-        <input class="admin-score" type="number" min="0" placeholder="A" value="${res.score_away??''}"
-          data-action="result-sa" data-rid="${rid}" data-mid="${m.id}">
-      </div>`;
-    }).join('');
+    // ── Pre-tournament results panel ─────────────────────────────
+    if (round.special === 'pretournament') {
+      const winPts = S.ptSettings?.winnerPts ?? 10;
+      const winnerRes = S.bonusResults['pt']?.['pt_winner']?.answer || '';
+      const allTeams = Object.values(GROUPS).flat().sort();
 
-    const bonusResultsHtml = getActiveQuestions(rid).map(bq => {
-      const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
-      const opts = bq.opts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
-      return `<div class="admin-match-row">
-        <span class="admin-match-label" style="font-size:11px">${bq.text}</span>
-        <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
-          <option value="">– Answer –</option>${opts}
-        </select>
-      </div>`;
-    }).join('');
+      const groupResultsHtml = Object.entries(GROUPS).map(([g, teams]) => {
+        const r1 = S.bonusResults['pt']?.[`pt_${g}_1`]?.answer || '';
+        const r2 = S.bonusResults['pt']?.[`pt_${g}_2`]?.answer || '';
+        const opts1 = teams.map(t => `<option value="${t}" ${r1===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+        const opts2 = teams.map(t => `<option value="${t}" ${r2===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+        return `<div class="admin-match-row" style="flex-wrap:wrap;gap:10px;align-items:center">
+          <span class="admin-match-label">Group ${g}
+            <span style="color:var(--faint);font-size:9px;font-family:var(--mono)"> ${teams.join(' / ')}</span>
+          </span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">1ST</span>
+            <select class="admin-select" data-action="pt-result-group" data-g="${g}" data-pos="1" style="min-width:140px">
+              <option value="">— Team —</option>${opts1}
+            </select>
+            <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">2ND</span>
+            <select class="admin-select" data-action="pt-result-group" data-g="${g}" data-pos="2" style="min-width:140px">
+              <option value="">— Team —</option>${opts2}
+            </select>
+          </div>
+        </div>`;
+      }).join('');
 
-    const { match: mMult, bonus: bMult } = getMultipliers(rid);
-    tabContent = `
-      <div class="pill-row">${pillsHtml}</div>
-      <div class="card" style="border-color:rgba(100,150,255,0.2);margin-bottom:12px">
-        <div class="card-title" style="color:#90caf9">✖ Points Multipliers — ${roundLabel(round)}</div>
-        <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Multiply base points for this round. Knockout wagers are never multiplied.</p>
-        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end">
-          <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Match picks (×)</label>
-            <input id="mult-match" class="admin-score" type="number" min="0.5" max="10" step="0.5"
-              value="${mMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+      const allTeamOpts = allTeams.map(t => `<option value="${t}" ${winnerRes===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+
+      tabContent = `
+        <div class="pill-row">${pillsHtml}</div>
+        <div class="card" style="border-color:rgba(255,215,0,0.2);margin-bottom:12px">
+          <div class="card-title" style="color:var(--gold)">⚙️ Pre-Tournament Settings</div>
+          <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Tournament winner points</label>
+              <input id="pt-winner-pts-input" class="admin-score" type="number" min="1" max="100"
+                value="${winPts}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+            </div>
+            <button class="btn btn-gold btn-sm" id="save-pt-winner-pts-btn">Save</button>
           </div>
-          <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Bonus questions (×)</label>
-            <input id="mult-bonus" class="admin-score" type="number" min="0.5" max="10" step="0.5"
-              value="${bMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
-          </div>
-          <button class="btn btn-gold btn-sm" id="save-mult-btn" data-rid="${rid}">Save multipliers</button>
         </div>
-        <p style="color:var(--faint);font-size:10px;margin-top:10px">
-          Current: correct pick = ${2*mMult} pts · exact score = ${1*mMult} pts · bonus base pts × ${bMult}
-        </p>
-      </div>
-      <div class="card">
-        <div class="card-title">${roundLabel(round)} — Match Results</div>
-        <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Set actual match outcomes to score all players automatically.</p>
-        ${matchResultsHtml}
-      </div>
-      <div class="card" style="border-color:rgba(255,215,0,0.2)">
-        <div class="card-title">⭐ Bonus Question Answers</div>
-        ${bonusResultsHtml}
-      </div>`;
+        <div class="card">
+          <div class="card-title">🏆 Group Standings Results</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Set the actual 1st and 2nd place finisher for each group to auto-score all player predictions.</p>
+          ${groupResultsHtml}
+        </div>
+        <div class="card" style="border-color:rgba(232,213,163,0.2)">
+          <div class="card-title">🏆 Tournament Winner Result</div>
+          <div class="admin-match-row">
+            <span class="admin-match-label">Who will win the 2026 World Cup?</span>
+            <select class="admin-select" data-action="pt-result-winner" style="min-width:180px">
+              <option value="">— Winner —</option>${allTeamOpts}
+            </select>
+          </div>
+        </div>`;
+
+    } else {
+      // ── Regular round results panel ────────────────────────────
+      const matchResultsHtml = round.matches.map(m => {
+        const res  = S.results[rid]?.[m.id] || {};
+        const opts = [m.home, ...(!round.knockout?['Draw']:[]), m.away];
+        const selOpts = opts.map(o => `<option value="${o}" ${res.winner===o?'selected':''}>${o}</option>`).join('');
+        const matchLabel = m.label ? `<span style="font-size:10px;color:#ff7043;margin-left:6px">[${m.label}]</span>` : '';
+        return `<div class="admin-match-row">
+          <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+          <select class="admin-select" data-action="result-winner" data-rid="${rid}" data-mid="${m.id}">
+            <option value="">– Winner –</option>${selOpts}
+          </select>
+          <input class="admin-score" type="number" min="0" placeholder="H" value="${res.score_home??''}"
+            data-action="result-sh" data-rid="${rid}" data-mid="${m.id}">
+          <span class="vs">–</span>
+          <input class="admin-score" type="number" min="0" placeholder="A" value="${res.score_away??''}"
+            data-action="result-sa" data-rid="${rid}" data-mid="${m.id}">
+        </div>`;
+      }).join('');
+
+      const bonusResultsHtml = getActiveQuestions(rid).map(bq => {
+        const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
+        const opts = bq.opts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
+        return `<div class="admin-match-row">
+          <span class="admin-match-label" style="font-size:11px">${bq.text}</span>
+          <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
+            <option value="">– Answer –</option>${opts}
+          </select>
+        </div>`;
+      }).join('');
+
+      const { match: mMult, bonus: bMult } = getMultipliers(rid);
+      tabContent = `
+        <div class="pill-row">${pillsHtml}</div>
+        <div class="card" style="border-color:rgba(100,150,255,0.2);margin-bottom:12px">
+          <div class="card-title" style="color:#90caf9">✖ Points Multipliers — ${roundLabel(round)}</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Multiply base points for this round. Knockout wagers are never multiplied.</p>
+          <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Match picks (×)</label>
+              <input id="mult-match" class="admin-score" type="number" min="0.5" max="10" step="0.5"
+                value="${mMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:5px">Bonus questions (×)</label>
+              <input id="mult-bonus" class="admin-score" type="number" min="0.5" max="10" step="0.5"
+                value="${bMult}" style="width:64px;font-size:14px;font-weight:700;text-align:center">
+            </div>
+            <button class="btn btn-gold btn-sm" id="save-mult-btn" data-rid="${rid}">Save multipliers</button>
+          </div>
+          <p style="color:var(--faint);font-size:10px;margin-top:10px">
+            Current: correct pick = ${2*mMult} pts · exact score = ${1*mMult} pts · bonus base pts × ${bMult}
+          </p>
+        </div>
+        <div class="card" style="border-color:rgba(255,112,67,0.2)">
+          <div class="card-title" style="color:#ff7043">⏱ Kickoff Times & Auto-Lock</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:14px">
+            Each match auto-locks 1 hour before kickoff. Adjust times here if a match is delayed — changes are saved locally on this device.
+          </p>
+          ${round.matches.map(m => {
+            const ko = getKickoff(m.id, m.kickoff);
+            const localVal = toDatetimeLocal(ko);
+            const isOverridden = !!S.kickoffOverrides[m.id];
+            const localDisplay = ko ? new Date(ko).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'No time set';
+            return `<div class="admin-match-row" style="flex-wrap:wrap;gap:10px;align-items:center">
+              <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${isOverridden ? ' <span style="color:#ff7043;font-size:9px;font-family:var(--mono)">ADJUSTED</span>' : ''}</span>
+              <input type="datetime-local" class="admin-score" style="width:190px;font-family:var(--mono);font-size:11px"
+                value="${localVal}" data-action="set-kickoff" data-mid="${m.id}">
+              <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">${localDisplay}</span>
+              ${isOverridden ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px" data-action="reset-kickoff" data-mid="${m.id}">Reset</button>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="card">
+          <div class="card-title">${roundLabel(round)} — Match Results</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:12px">Set actual match outcomes to score all players automatically.</p>
+          ${matchResultsHtml}
+        </div>
+        <div class="card" style="border-color:rgba(255,215,0,0.2)">
+          <div class="card-title">⭐ Bonus Question Answers</div>
+          ${bonusResultsHtml}
+        </div>`;
+    }
   }
 
   // ── Lock tab ─────────────────────────────────────────────────
@@ -1648,6 +1939,23 @@ function renderAdmin() {
 
 // ── Dashboard ─────────────────────────────────────────────────────
 function calcRoundScore(uid, rid) {
+  if (rid === 'pt') {
+    let pts = 0;
+    const ptBa = S.bonusAnswers[uid]?.['pt'] || {};
+    const ptBr = S.bonusResults['pt'] || {};
+    for (const g of Object.keys(GROUPS)) {
+      const p1 = ptBa[`pt_${g}_1`]?.answer, p2 = ptBa[`pt_${g}_2`]?.answer;
+      const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
+      if (!r1 && !r2) continue;
+      const qualified = new Set([r1, r2].filter(Boolean));
+      if (p1) { if (p1 === r1) pts += 2; else if (r1 && qualified.has(p1)) pts += 1; }
+      if (p2) { if (p2 === r2) pts += 2; else if (r2 && qualified.has(p2)) pts += 1; }
+    }
+    const winPts = S.ptSettings?.winnerPts ?? 10;
+    const winPick = ptBa['pt_winner']?.answer, winRes = ptBr['pt_winner']?.answer;
+    if (winPick && winRes && winPick === winRes) pts += winPts;
+    return pts;
+  }
   const round = ROUNDS[rid];
   if (!round) return 0;
   let pts = 0;
@@ -1655,13 +1963,11 @@ function calcRoundScore(uid, rid) {
   for (const m of round.matches) {
     const pick   = S.picks[uid]?.[rid]?.[m.id];
     const result = S.results[rid]?.[m.id];
-    if (!pick || !result || !result.winner || !pick.winner) continue;
-    if (pick.winner === result.winner) {
-      pts += 2 * mMult;
-      if (String(pick.score_home) === String(result.score_home) &&
-          String(pick.score_away) === String(result.score_away) &&
-          result.score_home !== '') pts += 1 * mMult;
-    }
+    if (!pick || !result || !result.winner) continue;
+    if (pick.winner && pick.winner === result.winner) pts += 2 * mMult;
+    const sh = String(pick.score_home ?? ''), sa = String(pick.score_away ?? '');
+    const rh = String(result.score_home ?? ''), ra = String(result.score_away ?? '');
+    if (sh !== '' && rh !== '' && sh === rh && sa === ra) pts += 1 * mMult;
   }
   for (const bq of getActiveQuestions(rid)) {
     const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -1951,11 +2257,16 @@ function renderBracket() {
 
 // ── Rules ─────────────────────────────────────────────────────────
 function renderRules() {
+  const winPts = S.ptSettings?.winnerPts ?? 10;
   const rows = [
-    ['⚽ Correct winner','2 pts'],['🎯 Exact score (needs correct winner)','+1 pt'],
-    ['⭐ Group Stage bonus Q','2 pts'],['⭐ R32 / R16 bonus Q','3 pts'],
-    ['⭐ QF bonus Q','3 pts'],['⭐ SF bonus Q','4 pts'],['⭐ Final bonus Q','5 pts'],
-    ['💰 Knockout wager — correct','base pts + wager'],['💀 Knockout wager — wrong','−wager only'],
+    ['⚽ Correct winner pick', '2 pts'],
+    ['🎯 Exact score — does NOT require correct winner', '+1 pt'],
+    ['⭐ Bonus questions — base value varies by round (3 pts standard, higher in later rounds)', '3–5 pts'],
+    ['💰 Knockout wager — correct', 'base pts + wager'],
+    ['💀 Knockout wager — wrong', '−wager only'],
+    ['🏆 Pre-tournament: group top-2 correct spot', '2 pts each'],
+    ['🏆 Pre-tournament: group top-2 right team wrong spot', '1 pt each'],
+    [`🏆 Pre-tournament: tournament winner`, `${winPts} pts`],
   ];
   return `
     <div class="page-title">📋 Pool Rules</div>
@@ -1964,12 +2275,28 @@ function renderRules() {
       <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
         Pick the winner of every match. Group stage matches can end in a <strong>Draw</strong>.
         Correct winner = <strong style="color:var(--gold)">2 pts</strong>.
-        Add the exact final score for a <strong style="color:#90caf9">+1 bonus pt</strong>.
+        Predict the exact final score for a bonus <strong style="color:#ce93d8">+1 pt</strong> —
+        this is awarded independently, even if your winner pick was wrong.
+      </p>
+      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">⭐ Bonus Questions</h3>
+      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
+        Each round has bonus questions worth a set number of points. Base value is
+        <strong style="color:var(--gold)">3 pts</strong> in most rounds, rising to
+        <strong style="color:var(--gold)">4 pts</strong> in the Semi-Finals and
+        <strong style="color:var(--gold)">5 pts</strong> in the Final.
+        The admin can also apply a round multiplier to increase all bonus points.
       </p>
       <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">💰 Knockout Wagers</h3>
       <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
         From Round of 32 onwards, wager up to 2× the base points on each bonus question.
-        Right = base + wager. Wrong = −wager only (you keep your match pick points).
+        Get it right = base pts + wager. Get it wrong = −wager only (match pick points are safe).
+      </p>
+      <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">🏆 Pre-Tournament Picks</h3>
+      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:16px">
+        Before the tournament, predict the top 2 finishers for all 12 groups (in order) and pick the overall winner.
+        Correct team in the correct spot = <strong style="color:var(--gold)">2 pts</strong>.
+        Correct team in the wrong spot = <strong style="color:#90caf9">1 pt</strong>.
+        Tournament winner correct = <strong style="color:var(--gold)">${winPts} pts</strong>.
       </p>
       <h3 style="color:var(--text);margin-bottom:12px;font-size:15px">🏆 Tiebreakers</h3>
       <ol style="color:var(--muted);font-size:14px;padding-left:20px;line-height:2">
@@ -1978,7 +2305,7 @@ function renderRules() {
       <table style="width:100%;border-collapse:collapse;margin-top:20px;font-size:13px">
         <tbody>${rows.map(([l,p])=>`<tr style="border-bottom:1px solid var(--border2)">
           <td style="padding:8px 0;color:var(--muted)">${l}</td>
-          <td style="padding:8px 0;text-align:right;color:var(--gold);font-weight:700">${p}</td>
+          <td style="padding:8px 0;text-align:right;color:var(--gold);font-weight:700;white-space:nowrap;padding-left:12px">${p}</td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
@@ -2095,6 +2422,29 @@ function attachEvents() {
     };
   });
 
+  // Admin: adjust kickoff time for delayed matches
+  document.querySelectorAll('[data-action="set-kickoff"]').forEach(inp => {
+    inp.onchange = () => {
+      const mid = inp.dataset.mid;
+      const val = inp.value; // datetime-local gives local time string
+      if (val) {
+        S.kickoffOverrides[mid] = new Date(val).toISOString();
+      } else {
+        delete S.kickoffOverrides[mid];
+      }
+      saveKickoffOverrides();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-action="reset-kickoff"]').forEach(btn => {
+    btn.onclick = () => {
+      delete S.kickoffOverrides[btn.dataset.mid];
+      saveKickoffOverrides();
+      render();
+    };
+  });
+
   // Admin: tab switcher
   document.querySelectorAll('[data-admin-tab]').forEach(btn => {
     btn.onclick = () => { S.adminTab = btn.dataset.adminTab; render(); };
@@ -2120,6 +2470,51 @@ function attachEvents() {
       if (prof) showPlayerModal(prof);
     };
   });
+
+  // Pre-tournament: group picks (user)
+  document.querySelectorAll('[data-action="pt-group"]').forEach(sel => {
+    sel.onchange = async () => {
+      const { g, pos } = sel.dataset;
+      await upsertBonusAnswer('pt', `pt_${g}_${pos}`, sel.value, 0);
+      render();
+    };
+  });
+
+  // Pre-tournament: tournament winner pick (user)
+  document.querySelectorAll('[data-action="pt-winner"]').forEach(sel => {
+    sel.onchange = async () => {
+      await upsertBonusAnswer('pt', 'pt_winner', sel.value, 0);
+      render();
+    };
+  });
+
+  // Admin: pre-tournament group result
+  document.querySelectorAll('[data-action="pt-result-group"]').forEach(sel => {
+    sel.onchange = async () => {
+      const { g, pos } = sel.dataset;
+      await upsertBonusResult('pt', `pt_${g}_${pos}`, sel.value);
+      render();
+    };
+  });
+
+  // Admin: pre-tournament winner result
+  document.querySelectorAll('[data-action="pt-result-winner"]').forEach(sel => {
+    sel.onchange = async () => {
+      await upsertBonusResult('pt', 'pt_winner', sel.value);
+      render();
+    };
+  });
+
+  // Admin: save pre-tournament winner pts
+  const savePtWinnerPtsBtn = document.getElementById('save-pt-winner-pts-btn');
+  if (savePtWinnerPtsBtn) {
+    savePtWinnerPtsBtn.onclick = () => {
+      const val = parseInt(document.getElementById('pt-winner-pts-input').value) || 10;
+      S.ptSettings.winnerPts = val;
+      savePtSettings();
+      render();
+    };
+  }
 
   // Admin: save multipliers
   const saveMultBtn = document.getElementById('save-mult-btn');
