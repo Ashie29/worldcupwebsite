@@ -1447,16 +1447,23 @@ function renderLeaderboard() {
   const lb = getLeaderboard();
   const maxPts = lb[0]?.total || 1;
   const medal = r => ['🥇','🥈','🥉'][r-1] || `#${r}`;
+  const isAdmin  = S.profile?.is_admin;
+  const isPinAdmin = S.user?.id === 'admin_pin';
+  const meId = (!isAdmin && !isPinAdmin) ? S.user?.id : null;
+  const me = meId ? lb.find(p => p.id === meId) : null;
+
   const achIcons = p => (p.achievements || []).slice(0,4)
     .map(a => ACHIEVEMENTS[a.type] ? `<span class="ach-icon" title="${ACHIEVEMENTS[a.type].label}">${ACHIEVEMENTS[a.type].icon}</span>` : '')
     .join('');
+
   const rows = lb.map((p,i) => {
     const barW = Math.round((p.total/maxPts)*100);
-    return `<tr class="${i===0?'gold-row':''}" data-uid="${p.id}" style="cursor:pointer">
+    const isMe = p.id === meId;
+    return `<tr class="${i===0?'gold-row':''} ${isMe?'me-row':''}" data-uid="${p.id}" style="cursor:pointer${isMe?';outline:1px solid rgba(232,213,163,0.35)':''}">
       <td><span class="rank-icon">${medal(p.rank)}</span></td>
       <td>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span>${p.nickname||p.name}</span>
+          <span${isMe?' style="color:var(--gold);font-weight:500"':''}>${p.nickname||p.name}${isMe?' <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">(you)</span>':''}</span>
           <span class="ach-icons">${achIcons(p)}</span>
         </div>
       </td>
@@ -1467,8 +1474,45 @@ function renderLeaderboard() {
     </tr>`;
   }).join('');
 
-  const html = `
+  // Your standing card — shown to regular players only
+  const myCard = me ? (() => {
+    const rankColor = me.rank===1?'#FFD700':me.rank===2?'#C0C0C0':me.rank===3?'#CD7F32':'var(--gold)';
+    const rankLabel = me.rank===1?'🥇 1st':me.rank===2?'🥈 2nd':me.rank===3?'🥉 3rd':`#${me.rank}`;
+    const nextUp = lb[lb.findIndex(p=>p.id===meId)-1];
+    const gap = nextUp ? nextUp.total - me.total : 0;
+    return `<div class="card" style="border-color:rgba(232,213,163,0.35);margin-bottom:16px">
+      <div class="card-title" style="color:var(--gold)">Your Standing</div>
+      <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
+        <div style="flex:0 0 auto;padding:0 24px 0 0;border-right:1px solid var(--border2);margin-right:24px">
+          <div style="font-family:var(--display);font-size:52px;line-height:1;color:${rankColor}">${rankLabel}</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-top:4px">POSITION</div>
+        </div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:var(--display);font-size:40px;line-height:1;color:#4CAF50">${me.total}</div>
+            <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-top:4px">POINTS</div>
+          </div>
+          <div>
+            <div style="font-family:var(--display);font-size:40px;line-height:1;color:#90caf9">${me.correctPicks}</div>
+            <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-top:4px">CORRECT</div>
+          </div>
+          <div>
+            <div style="font-family:var(--display);font-size:40px;line-height:1;color:#ce93d8">${me.exactScores}</div>
+            <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.15em;margin-top:4px">EXACT</div>
+          </div>
+          ${nextUp ? `<div style="align-self:flex-end;padding-bottom:4px">
+            <div style="font-size:11px;color:var(--muted);font-family:var(--mono)">
+              ${gap > 0 ? `<span style="color:#e88a80">−${gap} pts</span> behind ${nextUp.nickname||nextUp.name}` : `<span style="color:#4CAF50">You're leading! 🎉</span>`}
+            </div>
+          </div>` : `<div style="align-self:flex-end;padding-bottom:4px;font-size:11px;color:#4CAF50;font-family:var(--mono)">You're leading! 🎉</div>`}
+        </div>
+      </div>
+    </div>`;
+  })() : '';
+
+  return `
     <div class="page-title">🏆 Leaderboard</div>
+    ${myCard}
     <div class="card">
       <table class="lb-table">
         <thead><tr>
@@ -1478,8 +1522,6 @@ function renderLeaderboard() {
       </table>
       <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores · Click a player to view profile</p>
     </div>`;
-
-  return html;
 }
 
 // ── Admin page ────────────────────────────────────────────────────
@@ -2390,7 +2432,7 @@ function attachEvents() {
     };
   });
 
-  // Admin: result score inputs
+  // Admin: result score inputs — auto-infer winner from scores when possible
   ['result-sh','result-sa'].forEach(action => {
     document.querySelectorAll(`[data-action="${action}"]`).forEach(inp => {
       inp.onblur = async () => {
@@ -2398,7 +2440,21 @@ function attachEvents() {
         const cur = S.results[rid]?.[mid] || {};
         const sh = action==='result-sh' ? inp.value : cur.score_home||'';
         const sa = action==='result-sa' ? inp.value : cur.score_away||'';
-        await upsertResult(rid, mid, cur.winner||'', sh, sa);
+        const round = ROUNDS[rid];
+        const m = round?.matches.find(x => x.id === mid);
+        // Auto-determine winner from scores so admin doesn't have to use the dropdown
+        let winner = cur.winner || '';
+        const shN = parseInt(sh), saN = parseInt(sa);
+        if (!isNaN(shN) && !isNaN(saN) && sh !== '' && sa !== '') {
+          if (shN > saN) winner = m?.home || winner;
+          else if (saN > shN) winner = m?.away || winner;
+          else if (!round?.knockout) winner = 'Draw';
+          // tied knockout: keep existing winner (ET/pens must be set manually)
+        }
+        await upsertResult(rid, mid, winner, sh, sa);
+        // Sync the winner dropdown UI if winner was auto-set
+        const sel = document.querySelector(`[data-action="result-winner"][data-rid="${rid}"][data-mid="${mid}"]`);
+        if (sel && winner) sel.value = winner;
         render();
       };
     });
