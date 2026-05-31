@@ -1267,11 +1267,15 @@ function renderShell(content) {
           <div>
             <div style="color:var(--text);font-size:13px;margin-bottom:6px">${dispName}</div>
             ${S.user?.id !== 'admin_pin' ? `
-              <label class="avatar-upload-label" for="avatar-file-input" id="avatar-upload-label">
-                ${S.profile?.avatar_url ? '🔄 Change Photo' : '📷 Add Photo'}
-              </label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                <label class="avatar-upload-label" for="avatar-file-input">
+                  ${S.profile?.avatar_url ? '🔄 Change' : '📷 Add Photo'}
+                </label>
+                ${S.profile?.avatar_url ? `<button id="avatar-remove-btn" class="avatar-upload-label" style="background:transparent;border-color:rgba(217,79,61,0.4);color:var(--red)">✕ Remove</button>` : ''}
+              </div>
               <input type="file" id="avatar-file-input" accept="image/*">
-              <div id="avatar-status" style="font-size:10px;color:var(--muted);margin-top:4px;font-family:var(--mono)"></div>
+              <div style="font-size:9px;color:var(--muted);font-family:var(--mono);margin-bottom:2px">Up to 15 MB · auto-cropped square</div>
+              <div id="avatar-status" style="font-size:10px;color:var(--muted);font-family:var(--mono)"></div>
             ` : ''}
           </div>
         </div>
@@ -2942,47 +2946,73 @@ function attachEvents() {
   });
 
   // Avatar upload
-  const avatarInput = document.getElementById('avatar-file-input');
+  const avatarInput  = document.getElementById('avatar-file-input');
   const avatarStatus = document.getElementById('avatar-status');
+  const avatarRemove = document.getElementById('avatar-remove-btn');
+
   if (avatarInput) {
     avatarInput.onchange = async () => {
       const file = avatarInput.files[0];
       if (!file) return;
-      avatarStatus.textContent = 'Uploading…';
+      // 15 MB guard
+      if (file.size > 15 * 1024 * 1024) {
+        avatarStatus.style.color = 'var(--red)';
+        avatarStatus.textContent = '✗ File too large (max 15 MB)';
+        return;
+      }
+      avatarStatus.style.color = 'var(--muted)';
+      avatarStatus.textContent = 'Processing…';
       try {
-        // Resize to 160×160 via canvas
+        // Use createObjectURL — no base64 intermediate, handles large originals fine
         const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => {
-            const img = new Image();
-            img.onload = () => {
-              const SIZE = 160;
-              const canvas = document.createElement('canvas');
-              canvas.width = SIZE; canvas.height = SIZE;
-              const ctx = canvas.getContext('2d');
-              // Centre-crop
-              const minDim = Math.min(img.width, img.height);
-              const sx = (img.width  - minDim) / 2;
-              const sy = (img.height - minDim) / 2;
-              ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, SIZE, SIZE);
-              resolve(canvas.toDataURL('image/jpeg', 0.8));
-            };
-            img.onerror = reject;
-            img.src = e.target.result;
+          const objectUrl = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            const SIZE = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = SIZE; canvas.height = SIZE;
+            const ctx = canvas.getContext('2d');
+            // Centre-crop to square
+            const minDim = Math.min(img.width, img.height);
+            const sx = (img.width  - minDim) / 2;
+            const sy = (img.height - minDim) / 2;
+            ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, SIZE, SIZE);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
           };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
+          img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+          img.src = objectUrl;
         });
+        avatarStatus.textContent = 'Saving…';
         const { error } = await sb.from('profiles').update({ avatar_url: base64 }).eq('id', S.user.id);
         if (error) throw error;
-        // Update local state
         S.profile.avatar_url = base64;
         S.profiles = S.profiles.map(p => p.id === S.user.id ? { ...p, avatar_url: base64 } : p);
-        avatarStatus.textContent = '✓ Saved';
-        // Re-render shell to show new avatar in sidebar
+        avatarStatus.style.color = '#4CAF50';
+        avatarStatus.textContent = '✓ Photo saved';
         render();
       } catch (err) {
-        avatarStatus.textContent = '✗ Failed — try a smaller image';
+        avatarStatus.style.color = 'var(--red)';
+        avatarStatus.textContent = '✗ Upload failed — try again';
+        console.error(err);
+      }
+    };
+  }
+
+  if (avatarRemove) {
+    avatarRemove.onclick = async () => {
+      if (!confirm('Remove your profile photo?')) return;
+      avatarStatus.style.color = 'var(--muted)';
+      avatarStatus.textContent = 'Removing…';
+      try {
+        const { error } = await sb.from('profiles').update({ avatar_url: null }).eq('id', S.user.id);
+        if (error) throw error;
+        S.profile.avatar_url = null;
+        S.profiles = S.profiles.map(p => p.id === S.user.id ? { ...p, avatar_url: null } : p);
+        render();
+      } catch (err) {
+        avatarStatus.style.color = 'var(--red)';
+        avatarStatus.textContent = '✗ Failed — try again';
         console.error(err);
       }
     };
