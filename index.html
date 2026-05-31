@@ -1192,7 +1192,13 @@ async function doAdminPin() {
   const btn   = document.getElementById('a-submit');
   if (pin !== 'admin2026') { showMsg(msgEl, 'Wrong PIN.', 'err'); btn.style.background = '#c0392b'; setTimeout(() => btn.style.background = '#ff7043', 500); return; }
   btn.disabled = true; btn.textContent = 'Loading…';
-  S.user    = { id: 'admin_pin' };
+  // Sign in to Supabase with the real admin account so RLS policies can verify identity
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: 'admin@vermanipool.internal',
+    password: 'dw8SxQCWcZLbEER'
+  });
+  if (error) { showMsg(msgEl, 'Admin sign-in failed — check Supabase admin account.', 'err'); btn.disabled = false; btn.textContent = 'Access Admin'; return; }
+  S.user    = { ...data.user, id: data.user.id };
   S.profile = { is_admin: true, name: 'Admin', nickname: 'Admin' };
   await loadAllData();
   S.page = 'admin';
@@ -1266,7 +1272,7 @@ function renderShell(content) {
             : `<div class="sidebar-avatar-initials">${(dispName||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>`}
           <div>
             <div style="color:var(--text);font-size:13px;margin-bottom:6px">${dispName}</div>
-            ${S.user?.id !== 'admin_pin' ? `
+            ${!S.profile?.is_admin ? `
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
                 <label class="avatar-upload-label" for="avatar-file-input">
                   ${S.profile?.avatar_url ? '🔄 Change' : '📷 Add Photo'}
@@ -1338,8 +1344,8 @@ function renderPicks() {
   const uid      = S.user.id;
   const locked   = S.roundSettings[rid]?.locked || false;
   const isAdmin  = S.profile?.is_admin;
-  const isPinAdmin = S.user?.id === 'admin_pin';
-  const readOnly = (locked && !isAdmin) || isAdmin || isPinAdmin;
+  const isPinAdmin = isAdmin; // isPinAdmin unified — both cases now use S.profile.is_admin
+  const readOnly = (locked && !isAdmin) || isAdmin;
 
   const pillsHtml = Object.values(ROUNDS).map(r => {
     const lk = S.roundSettings[r.id]?.locked;
@@ -1611,8 +1617,8 @@ function renderLeaderboard() {
   const maxPts = lb[0]?.total || 1;
   const medal = r => ['🥇','🥈','🥉'][r-1] || `#${r}`;
   const isAdmin  = S.profile?.is_admin;
-  const isPinAdmin = S.user?.id === 'admin_pin';
-  const meId = (!isAdmin && !isPinAdmin) ? S.user?.id : null;
+  const isPinAdmin = isAdmin;
+  const meId = !isAdmin ? S.user?.id : null;
   const me = meId ? lb.find(p => p.id === meId) : null;
 
   const achIcons = p => (p.achievements || []).slice(0,4)
