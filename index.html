@@ -2917,13 +2917,14 @@ function renderResults() {
   const isAdmin    = S.profile?.is_admin;
   const allRoundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
 
-  // For regular users, only show rounds that are locked or have results entered
-  // This prevents peeking at future bonus questions
+  // For regular users, only show rounds that have results entered.
+  // A locked-but-no-results round is intentionally hidden so players
+  // can't peek at bonus questions before results are published.
   const roundIds = isAdmin
     ? allRoundIds
     : allRoundIds.filter(r =>
-        S.roundSettings[r]?.locked ||
-        Object.keys(S.results[r] || {}).length > 0
+        Object.keys(S.results[r] || {}).length > 0 ||
+        Object.keys(S.bonusResults[r] || {}).length > 0
       );
 
   // If the active round is now hidden, fall back to the first visible one
