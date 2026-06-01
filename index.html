@@ -1464,6 +1464,24 @@ function renderPicks() {
   // Admin-locked round: hide everything from regular users
   // Exception: pre-tournament round shows picks read-only instead of a lock wall
   if (locked && !isAdmin && !isPinAdmin && round.special !== 'pretournament') {
+    const unlockAt = S.lockSchedules[rid]?.unlockAt;
+    let unlockLine = '';
+    if (unlockAt) {
+      const diff = new Date(unlockAt).getTime() - Date.now();
+      if (diff > 0) {
+        const totalMins = Math.floor(diff / 60000);
+        const hrs = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        let countdownStr;
+        if (hrs >= 48) countdownStr = `${Math.floor(hrs/24)}d ${hrs%24}h`;
+        else if (hrs >= 1) countdownStr = `${hrs}h ${mins}m`;
+        else countdownStr = `${mins}m`;
+        const localUnlock = new Date(unlockAt).toLocaleString(undefined, {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+        unlockLine = `<p style="color:#66bb6a;font-family:var(--mono);font-size:12px;margin-top:16px;letter-spacing:0.05em">
+          🟢 Unlocks in ${countdownStr} · ${localUnlock}
+        </p>`;
+      }
+    }
     return `
       <div class="page-title">My Picks</div>
       <div class="pill-row">${pillsHtml}</div>
@@ -1474,6 +1492,7 @@ function renderPicks() {
         <p style="color:var(--muted);font-size:13px;max-width:320px;margin:0 auto;line-height:1.7">
           This round is currently locked. Picks are hidden until the admin opens it.
         </p>
+        ${unlockLine}
       </div>`;
   }
 
@@ -3732,8 +3751,8 @@ function showMsg(el, text, type) {
 // 10. INIT
 // ════════════════════════════════════════════════════════════════
 async function init() {
-  initTheme();
   loadLocalSettings();
+  initTheme();
   const { data: { session } } = await sb.auth.getSession();
 
   if (session?.user) {
