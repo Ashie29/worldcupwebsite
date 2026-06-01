@@ -627,6 +627,7 @@ const S = {
   customRules: null,  // string | null — stored in localStorage 'wc26:customRules'
   rulesEditing: false,
   manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
+  prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -701,6 +702,10 @@ function loadLocalSettings() {
   try {
     const ml = localStorage.getItem('wc26:manualMatchLocks');
     if (ml) S.manualMatchLocks = JSON.parse(ml);
+  } catch {}
+  try {
+    const pz = localStorage.getItem('wc26:prizes');
+    if (pz) S.prizes = JSON.parse(pz);
   } catch {}
 }
 
@@ -1653,9 +1658,28 @@ function renderLeaderboard() {
     .map(a => ACHIEVEMENTS[a.type] ? `<span class="ach-icon" title="${ACHIEVEMENTS[a.type].label}">${ACHIEVEMENTS[a.type].icon}</span>` : '')
     .join('');
 
+  // Build prize lookup: rank → amount
+  const prizeMap = {};
+  const pzCurrency = S.prizes?.currency || 'CAD';
+  (S.prizes?.entries || []).forEach(e => { if (e.rank) prizeMap[Number(e.rank)] = e.amount; });
+
   const rows = lb.map((p,i) => {
     const barW = Math.round((p.total/maxPts)*100);
     const isMe = p.id === meId;
+    const prize = prizeMap[p.rank];
+    const prizeMeta = p.rank === 1
+      ? { bg:'var(--gold)',        color:'#1a1a1a', shadow:'rgba(232,213,163,0.4)' }
+      : p.rank === 2
+      ? { bg:'#b0b8c1',           color:'#1a1a1a', shadow:'rgba(176,184,193,0.4)' }
+      : p.rank === 3
+      ? { bg:'#a0714f',           color:'#fff',    shadow:'rgba(160,113,79,0.4)'  }
+      :   { bg:'rgba(255,255,255,0.1)', color:'var(--muted)', shadow:'none' };
+    const prizeBadge = prize
+      ? `<span style="font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+          color:${prizeMeta.color};background:${prizeMeta.bg};padding:3px 9px;white-space:nowrap;
+          font-weight:700;box-shadow:0 0 10px ${prizeMeta.shadow}">
+          ${pzCurrency} ${prize}
+         </span>` : '';
     return `<tr class="${i===0?'gold-row':''} ${isMe?'me-row':''}" data-uid="${p.id}" style="cursor:pointer${isMe?';outline:1px solid rgba(232,213,163,0.35)':''}">
       <td><span class="rank-icon">${medal(p.rank)}</span></td>
       <td>
@@ -1671,6 +1695,7 @@ function renderLeaderboard() {
       <td style="color:#ce93d8">${p.exactScores}</td>
       <td><span class="lb-bar-wrap"><span class="lb-bar" style="width:${barW}%"></span></span></td>
       <td><span class="lb-pts">${p.total}</span></td>
+      <td style="padding-left:10px">${prizeBadge}</td>
     </tr>`;
   }).join('');
 
@@ -1716,9 +1741,9 @@ function renderLeaderboard() {
     <div class="card">
       <table class="lb-table">
         <thead><tr>
-          <th>Rank</th><th>Player</th><th>Correct</th><th>Exact</th><th></th><th>Pts</th>
+          <th>Rank</th><th>Player</th><th>Correct</th><th>Exact</th><th></th><th>Pts</th><th></th>
         </tr></thead>
-        <tbody>${rows||'<tr><td colspan="6" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
+        <tbody>${rows||'<tr><td colspan="7" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
       </table>
       <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores · Click a player to view profile</p>
     </div>`;
@@ -2308,7 +2333,40 @@ function renderAdmin() {
       </div>`;
     }).join('');
 
+    const pz = S.prizes;
+    const prizeRows = pz.entries.map((e, i) => `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:28px;flex-shrink:0">#</span>
+        <input class="input" type="number" min="1" max="999" value="${e.rank}"
+          data-prize-field="rank" data-prize-i="${i}"
+          style="width:70px;padding:7px 10px;font-size:13px" placeholder="Place">
+        <input class="input" type="text" value="${e.amount}"
+          data-prize-field="amount" data-prize-i="${i}"
+          style="flex:1;padding:7px 10px;font-size:13px" placeholder="e.g. 500">
+        <button class="btn btn-sm btn-danger" data-prize-delete="${i}" style="padding:6px 10px;flex-shrink:0">✕</button>
+      </div>`).join('');
+
     tabContent = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">🏆 Prize Configuration</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap">Currency Symbol / Label</label>
+          <input class="input" id="prize-currency" type="text" value="${pz.currency}"
+            style="width:100px;padding:7px 10px;font-size:13px" placeholder="CAD">
+          <span style="font-size:11px;color:var(--muted)">shown before every prize amount</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:28px;flex-shrink:0"></span>
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.1em;width:70px">PLACE</span>
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.1em">AMOUNT</span>
+        </div>
+        ${prizeRows || '<p style="color:var(--muted);font-size:13px;margin-bottom:12px">No prizes set yet.</p>'}
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-outline btn-sm" id="prize-add-btn">+ Add Place</button>
+          <button class="btn btn-gold btn-sm" id="prize-save-btn">Save Prizes</button>
+          <span id="prize-status" style="font-size:11px;color:var(--muted);font-family:var(--mono);align-self:center"></span>
+        </div>
+      </div>
       <div class="card">
         <div class="card-title">👥 Players (${players.length})</div>
         ${playerRows || '<p style="color:var(--muted);font-size:13px">No players yet.</p>'}
@@ -3062,6 +3120,43 @@ function attachEvents() {
         S.manualMatchLocks[mid] = true;
       }
       localStorage.setItem('wc26:manualMatchLocks', JSON.stringify(S.manualMatchLocks));
+      render();
+    };
+  });
+
+  // Prize config (admin Players tab)
+  const prizeAddBtn  = document.getElementById('prize-add-btn');
+  const prizeSaveBtn = document.getElementById('prize-save-btn');
+  const prizeStatus  = document.getElementById('prize-status');
+
+  if (prizeAddBtn) {
+    prizeAddBtn.onclick = () => {
+      S.prizes.entries.push({ rank: '', amount: '' });
+      render();
+    };
+  }
+  if (prizeSaveBtn) {
+    prizeSaveBtn.onclick = () => {
+      // Read all field values from DOM before saving
+      const currency = document.getElementById('prize-currency')?.value?.trim() || 'CAD';
+      const entries = [];
+      document.querySelectorAll('[data-prize-field="rank"]').forEach(inp => {
+        const i = Number(inp.dataset.prizeI);
+        const rank = parseInt(inp.value, 10);
+        const amountEl = document.querySelector(`[data-prize-field="amount"][data-prize-i="${i}"]`);
+        const amount = amountEl?.value?.trim() || '';
+        if (rank > 0 && amount) entries.push({ rank, amount });
+      });
+      S.prizes = { currency, entries };
+      localStorage.setItem('wc26:prizes', JSON.stringify(S.prizes));
+      if (prizeStatus) { prizeStatus.textContent = '✓ Saved'; setTimeout(() => { if(prizeStatus) prizeStatus.textContent = ''; }, 2000); }
+    };
+  }
+  document.querySelectorAll('[data-prize-delete]').forEach(btn => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.prizeDelete);
+      S.prizes.entries.splice(i, 1);
+      localStorage.setItem('wc26:prizes', JSON.stringify(S.prizes));
       render();
     };
   });
