@@ -81,6 +81,7 @@ a{color:var(--gold);text-decoration:none;}
   outline:none;transition:border-color .2s;}
 .input:focus{border-color:var(--gold);}
 .input::placeholder{color:var(--faint);}
+.input option{background:#1e1e1e;color:#f0ede8;}
 .label{display:block;font-size:10px;color:var(--muted);margin-bottom:6px;
   font-family:var(--mono);letter-spacing:0.15em;text-transform:uppercase;}
 .field{margin-bottom:14px;}
@@ -1461,7 +1462,8 @@ function renderPicks() {
   }).join('');
 
   // Admin-locked round: hide everything from regular users
-  if (locked && !isAdmin && !isPinAdmin) {
+  // Exception: pre-tournament round shows picks read-only instead of a lock wall
+  if (locked && !isAdmin && !isPinAdmin && round.special !== 'pretournament') {
     return `
       <div class="page-title">My Picks</div>
       <div class="pill-row">${pillsHtml}</div>
