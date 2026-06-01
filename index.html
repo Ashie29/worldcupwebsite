@@ -416,6 +416,29 @@ const FLAG = {
 };
 const F = t => FLAG[t] || '⚽';
 
+// ── Colour schemes ────────────────────────────────────────────────
+// Each scheme defines dark + light variants so both modes look correct
+const COLOR_SCHEMES = {
+  gold:    { label:'Gold',    swatch:'#e8d5a3',
+    dark:  { accent:'#e8d5a3', accent2:'#c4a96a', border:'rgba(232,213,163,0.14)' },
+    light: { accent:'#9a7a35', accent2:'#7a5f25', border:'rgba(154,122,53,0.2)'   } },
+  crimson: { label:'Crimson', swatch:'#e07878',
+    dark:  { accent:'#e8a3a3', accent2:'#c44444', border:'rgba(220,80,80,0.16)'   },
+    light: { accent:'#b83228', accent2:'#8c2020', border:'rgba(184,50,40,0.2)'    } },
+  ocean:   { label:'Ocean',   swatch:'#5bbcda',
+    dark:  { accent:'#7ecfe3', accent2:'#3da8c4', border:'rgba(126,200,227,0.16)' },
+    light: { accent:'#1a7a9a', accent2:'#145f78', border:'rgba(26,122,154,0.2)'   } },
+  forest:  { label:'Forest',  swatch:'#7bbf45',
+    dark:  { accent:'#96cc5e', accent2:'#5a9e22', border:'rgba(139,195,74,0.16)'  },
+    light: { accent:'#4a8020', accent2:'#376018', border:'rgba(74,128,32,0.2)'    } },
+  violet:  { label:'Violet',  swatch:'#b87ee8',
+    dark:  { accent:'#c9a0e8', accent2:'#9a6ab5', border:'rgba(200,160,230,0.16)' },
+    light: { accent:'#7b3fa8', accent2:'#5e2f80', border:'rgba(123,63,168,0.2)'   } },
+  sunset:  { label:'Sunset',  swatch:'#f0a05a',
+    dark:  { accent:'#f0b87a', accent2:'#d4883a', border:'rgba(240,184,122,0.16)' },
+    light: { accent:'#b86820', accent2:'#8c4e18', border:'rgba(184,104,32,0.2)'   } },
+};
+
 // WC 2026 groups (A–L, 4 teams each)
 const GROUPS = {
   A:['Mexico','South Africa','South Korea','Czechia'],
@@ -628,6 +651,7 @@ const S = {
   rulesEditing: false,
   manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
   prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
+  colorScheme: 'gold', // localStorage 'wc26:colorScheme'
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -706,6 +730,10 @@ function loadLocalSettings() {
   try {
     const pz = localStorage.getItem('wc26:prizes');
     if (pz) S.prizes = JSON.parse(pz);
+  } catch {}
+  try {
+    const cs = localStorage.getItem('wc26:colorScheme');
+    if (cs && COLOR_SCHEMES[cs]) S.colorScheme = cs;
   } catch {}
 }
 
@@ -981,16 +1009,28 @@ function initTheme() {
   const saved = localStorage.getItem('wc26:theme');
   S.darkMode = saved !== 'light';
   applyTheme();
+  applyColorScheme(S.colorScheme);
 }
 
 function applyTheme() {
   document.body.classList.toggle('light-mode', !S.darkMode);
 }
 
+function applyColorScheme(id) {
+  const scheme = COLOR_SCHEMES[id] || COLOR_SCHEMES.gold;
+  S.colorScheme = id;
+  // Set on document.body — inline styles on body beat body.light-mode CSS class variables
+  const vars = S.darkMode ? scheme.dark : scheme.light;
+  document.body.style.setProperty('--gold',   vars.accent);
+  document.body.style.setProperty('--gold2',  vars.accent2);
+  document.body.style.setProperty('--border', vars.border);
+}
+
 function toggleTheme() {
   S.darkMode = !S.darkMode;
   localStorage.setItem('wc26:theme', S.darkMode ? 'dark' : 'light');
   applyTheme();
+  applyColorScheme(S.colorScheme || 'gold'); // re-apply with correct dark/light variant
   // Re-render sidebar in place without full page render
   const trackEl = document.getElementById('toggle-track');
   const thumbEl = document.getElementById('toggle-thumb');
@@ -1296,6 +1336,19 @@ function renderShell(content) {
             <div class="toggle-thumb ${S.darkMode ? 'on' : 'off'}" id="toggle-thumb"></div>
           </div>
         </button>
+        <p style="font-size:9px;color:var(--muted);font-family:var(--mono);letter-spacing:.15em;text-transform:uppercase;margin:14px 0 8px">Colour Scheme</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${Object.entries(COLOR_SCHEMES).map(([id, sc]) => {
+            const active = (S.colorScheme || 'gold') === id;
+            return `<button data-scheme="${id}" title="${sc.label}"
+              style="width:32px;height:32px;background:${sc.swatch};border:2px solid ${active ? '#fff' : 'transparent'};
+              cursor:pointer;position:relative;transition:border-color .15s;flex-shrink:0"
+              title="${sc.label}">
+              ${active ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:${id==='gold'||id==='ocean'||id==='forest'?'#111':'#fff'}">✓</span>` : ''}
+            </button>`;
+          }).join('')}
+        </div>
+        <p id="scheme-label" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:6px">${COLOR_SCHEMES[S.colorScheme||'gold'].label}</p>
       </div>
       <div class="sidebar-section">
         <p class="sidebar-section-label">Account</p>
@@ -1347,6 +1400,25 @@ function renderShell(content) {
   document.getElementById('hamburger-btn').onclick = openSidebar;
   document.getElementById('sidebar-close').onclick = closeSidebar;
   document.getElementById('sidebar-overlay').onclick = closeSidebar;
+
+  // Colour scheme swatches
+  document.querySelectorAll('[data-scheme]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.scheme;
+      applyColorScheme(id);
+      localStorage.setItem('wc26:colorScheme', id);
+      // Update swatches in place — no full re-render needed
+      document.querySelectorAll('[data-scheme]').forEach(b => {
+        const active = b.dataset.scheme === id;
+        b.style.borderColor = active ? '#fff' : 'transparent';
+        b.innerHTML = active
+          ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:${id==='gold'||id==='ocean'||id==='forest'?'#111':'#fff'}">✓</span>`
+          : '';
+      });
+      const lbl = document.getElementById('scheme-label');
+      if (lbl) lbl.textContent = COLOR_SCHEMES[id].label;
+    };
+  });
 
   // Sign out buttons
   const doSignOut = async () => {
@@ -2840,12 +2912,32 @@ function renderBracket() {
 
 // ── Rules ─────────────────────────────────────────────────────────
 function renderResults() {
-  const roundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
+  const isAdmin    = S.profile?.is_admin;
+  const allRoundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
 
-  // Active round pill
-  if (!roundIds.includes(S.activeRound)) S.activeRound = 'gs1';
-  const rid = S.activeRound;
+  // For regular users, only show rounds that are locked or have results entered
+  // This prevents peeking at future bonus questions
+  const roundIds = isAdmin
+    ? allRoundIds
+    : allRoundIds.filter(r =>
+        S.roundSettings[r]?.locked ||
+        Object.keys(S.results[r] || {}).length > 0
+      );
+
+  // If the active round is now hidden, fall back to the first visible one
+  if (!roundIds.includes(S.activeRound)) S.activeRound = roundIds[0] || 'gs1';
+  const rid   = S.activeRound;
   const round = ROUNDS[rid];
+
+  // Nothing visible yet for regular users
+  if (!isAdmin && roundIds.length === 0) {
+    return `
+      <div class="page-title">📊 Results</div>
+      <div class="card" style="text-align:center;padding:40px 20px">
+        <div style="font-size:32px;margin-bottom:12px">⏳</div>
+        <div style="color:var(--muted);font-size:14px">Results will appear here once the tournament begins.</div>
+      </div>`;
+  }
 
   const pills = roundIds.map(r => {
     const hasAny = Object.keys(S.results[r] || {}).length > 0;
