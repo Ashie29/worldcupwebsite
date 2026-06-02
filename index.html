@@ -4112,7 +4112,7 @@ async function init() {
   render();
 
   // Check lock schedules every 30 seconds
-  setInterval(checkLockSchedules, 10000);
+  setInterval(checkLockSchedules, 30000);
 
   // React to login/logout events
   sb.auth.onAuthStateChange(async (event, session) => {
