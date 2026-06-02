@@ -848,6 +848,14 @@ function calcScore(uid) {
   const winPick = ptBa['pt_winner']?.answer, winRes = ptBr['pt_winner']?.answer;
   if (winPick && winRes && winPick === winRes) total += winPts;
 
+  // Pre-tournament custom bonus questions
+  for (const bq of getActiveQuestions('pt')) {
+    const ans     = S.bonusAnswers[uid]?.['pt']?.[bq.id];
+    const correct = S.bonusResults['pt']?.[bq.id];
+    if (!ans || !correct || !correct.answer || !ans.answer) continue;
+    if (ans.answer === correct.answer) total += bq.pts;
+  }
+
   for (const round of Object.values(ROUNDS)) {
     if (round.special === 'pretournament') continue;
     const rid = round.id;
