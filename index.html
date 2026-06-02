@@ -3332,12 +3332,11 @@ function renderRules() {
 // ════════════════════════════════════════════════════════════════
 // 8. MAIN RENDER + EVENT DELEGATION
 // ════════════════════════════════════════════════════════════════
-let _renderPending = false;
+let _rendering = false;
 function render() {
-  if (_renderPending) return;
-  _renderPending = true;
-  requestAnimationFrame(() => {
-    _renderPending = false;
+  if (_rendering) return; // prevent re-entrant renders
+  _rendering = true;
+  try {
     if (!S.user) { renderAuth(); return; }
     let content = '';
     switch(S.page) {
@@ -3352,7 +3351,9 @@ function render() {
     }
     renderShell(content);
     attachEvents();
-  });
+  } finally {
+    _rendering = false;
+  }
 }
 
 function attachEvents() {
