@@ -670,13 +670,15 @@ function getMultipliers(rid) {
   return { match: S.multipliers[rid]?.match ?? 1, bonus: S.multipliers[rid]?.bonus ?? 1 };
 }
 
-async function saveCustomQuestions() {
-  const json = JSON.stringify(S.customBonusQs);
-  localStorage.setItem('wc26:customBonusQs', json); // local cache
-  await sb.from('app_config').upsert(
-    { key: 'customBonusQs', value: json },
-    { onConflict: 'key' }
-  );
+function saveCustomQuestions() {
+  localStorage.setItem('wc26:customBonusQs', JSON.stringify(S.customBonusQs));
+  // Persist each round's custom questions to round_settings so all devices see them
+  for (const [rid, qs] of Object.entries(S.customBonusQs)) {
+    sb.from('round_settings').upsert(
+      { round_id: rid, custom_questions: JSON.stringify(qs) },
+      { onConflict: 'round_id' }
+    );
+  }
 }
 
 function saveMultipliers() {
@@ -936,38 +938,46 @@ async function loadAllData() {
     S.bonusResults[b.round_id][b.question_id] = { answer: b.answer };
   }
 
-  // round settings
+  // round settings + custom bonus questions (stored in custom_questions column)
   const { data: rs } = await sb.from('round_settings').select('*');
   S.roundSettings = {};
-  for (const r of (rs || [])) S.roundSettings[r.round_id] = { locked: r.locked, deadline: r.deadline };
-
-  // custom bonus questions (stored in app_config so all devices see them)
-  const { data: cqRow } = await sb.from('app_config').select('value').eq('key', 'customBonusQs').single();
-  if (cqRow?.value) {
-    try {
-      S.customBonusQs = JSON.parse(cqRow.value);
-      localStorage.setItem('wc26:customBonusQs', cqRow.value); // keep local cache in sync
-    } catch(e) {}
+  for (const r of (rs || [])) {
+    S.roundSettings[r.round_id] = { locked: r.locked, deadline: r.deadline };
+    if (r.custom_questions) {
+      try {
+        const qs = JSON.parse(r.custom_questions);
+        if (Array.isArray(qs) && qs.length > 0) S.customBonusQs[r.round_id] = qs;
+      } catch(e) {}
+    }
   }
 }
 
-async function upsertPick(rid, mid, winner, sh, sa) {
-  await sb.from('picks').upsert({
-    user_id: S.user.id, round_id: rid, match_id: mid,
-    winner, score_home: String(sh), score_away: String(sa),
-  }, { onConflict: 'user_id,round_id,match_id' });
+function upsertPick(rid, mid, winner, sh, sa) {
+  // Update local state immediately so the UI responds instantly
   if (!S.picks[S.user.id]) S.picks[S.user.id] = {};
   if (!S.picks[S.user.id][rid]) S.picks[S.user.id][rid] = {};
   S.picks[S.user.id][rid][mid] = { winner, score_home: String(sh), score_away: String(sa) };
+  // Sync to Supabase in the background with one retry
+  const row = { user_id: S.user.id, round_id: rid, match_id: mid,
+    winner, score_home: String(sh), score_away: String(sa) };
+  const doWrite = () => sb.from('picks').upsert(row, { onConflict: 'user_id,round_id,match_id' });
+  doWrite().then(({ error }) => {
+    if (error) { setTimeout(() => doWrite(), 3000); } // retry once after 3s
+  });
 }
 
-async function upsertBonusAnswer(rid, qid, answer, wager) {
-  await sb.from('bonus_answers').upsert({
-    user_id: S.user.id, round_id: rid, question_id: qid, answer, wager: Number(wager) || 0,
-  }, { onConflict: 'user_id,round_id,question_id' });
+function upsertBonusAnswer(rid, qid, answer, wager) {
+  // Update local state immediately so the UI responds instantly
   if (!S.bonusAnswers[S.user.id]) S.bonusAnswers[S.user.id] = {};
   if (!S.bonusAnswers[S.user.id][rid]) S.bonusAnswers[S.user.id][rid] = {};
   S.bonusAnswers[S.user.id][rid][qid] = { answer, wager: Number(wager) || 0 };
+  // Sync to Supabase in the background with one retry
+  const row = { user_id: S.user.id, round_id: rid, question_id: qid,
+    answer, wager: Number(wager) || 0 };
+  const doWrite = () => sb.from('bonus_answers').upsert(row, { onConflict: 'user_id,round_id,question_id' });
+  doWrite().then(({ error }) => {
+    if (error) { setTimeout(() => doWrite(), 3000); } // retry once after 3s
+  });
 }
 
 async function upsertResult(rid, mid, winner, sh, sa) {
@@ -3655,45 +3665,45 @@ function attachEvents() {
 
   // Team pick buttons
   document.querySelectorAll('[data-action="pick"]').forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = () => {
       const { rid, mid, team } = btn.dataset;
       const pick = S.picks[S.user.id]?.[rid]?.[mid] || {};
-      await upsertPick(rid, mid, team, pick.score_home||'', pick.score_away||'');
+      upsertPick(rid, mid, team, pick.score_home||'', pick.score_away||'');
       render();
     };
   });
 
   // Score inputs (save on blur)
   document.querySelectorAll('[data-action="score"]').forEach(inp => {
-    inp.onblur = async () => {
+    inp.onblur = () => {
       const { rid, mid, side } = inp.dataset;
       const pick = S.picks[S.user.id]?.[rid]?.[mid] || {};
       const sh = side==='h' ? inp.value : pick.score_home || '';
       const sa = side==='a' ? inp.value : pick.score_away || '';
-      await upsertPick(rid, mid, pick.winner||'', sh, sa);
+      upsertPick(rid, mid, pick.winner||'', sh, sa);
       render();
     };
   });
 
   // Bonus option buttons
   document.querySelectorAll('[data-action="bonus"]').forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = () => {
       const { rid, qid, opt } = btn.dataset;
       const cur = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
-      await upsertBonusAnswer(rid, qid, opt, cur.wager||0);
+      upsertBonusAnswer(rid, qid, opt, cur.wager||0);
       render();
     };
   });
 
   // Wager inputs (save on blur)
   document.querySelectorAll('[data-action="wager"]').forEach(inp => {
-    inp.onblur = async () => {
+    inp.onblur = () => {
       const { rid, qid } = inp.dataset;
       const bq   = Object.values(ROUNDS).find(r=>r.id===rid)?.bonusQuestions.find(q=>q.id===qid);
       const maxW = (bq?.pts||0)*2;
       const val  = Math.min(maxW, Math.max(0, parseInt(inp.value)||0));
       const cur  = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
-      await upsertBonusAnswer(rid, qid, cur.answer||'', val);
+      upsertBonusAnswer(rid, qid, cur.answer||'', val);
       render();
     };
   });
