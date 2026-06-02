@@ -2076,61 +2076,6 @@ function renderAdmin() {
           </div>
         </div>
         ${(() => {
-          const players = S.profiles.filter(p => !p.is_admin);
-          const ptBr = S.bonusResults['pt'] || {};
-          const groupsWithResults = Object.keys(GROUPS).filter(g => ptBr[`pt_${g}_1`]?.answer || ptBr[`pt_${g}_2`]?.answer).length;
-          const winnerSet = !!ptBr['pt_winner']?.answer;
-
-          const previewRows = players.map(p => {
-            const ptBa = S.bonusAnswers[p.id]?.['pt'] || {};
-            let groupPts = 0, winnerPtsEarned = 0;
-            const groupDetails = Object.entries(GROUPS).map(([g, teams]) => {
-              const p1 = ptBa[`pt_${g}_1`]?.answer, p2 = ptBa[`pt_${g}_2`]?.answer;
-              const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
-              if (!r1 && !r2) return null;
-              const qualified = new Set([r1, r2].filter(Boolean));
-              let gPts = 0;
-              if (p1) { if (p1 === r1) gPts += 2; else if (r1 && qualified.has(p1)) gPts += 1; }
-              if (p2) { if (p2 === r2) gPts += 2; else if (r2 && qualified.has(p2)) gPts += 1; }
-              groupPts += gPts;
-              return `<span title="Group ${g}: ${p1||'—'} / ${p2||'—'}" style="font-size:10px;font-family:var(--mono);
-                color:${gPts===4?'#66bb6a':gPts>0?'#90caf9':'var(--faint)'}">${g}:${gPts}</span>`;
-            }).filter(Boolean).join(' ');
-            const wPick = ptBa['pt_winner']?.answer, wRes = ptBr['pt_winner']?.answer;
-            if (wPick && wRes && wPick === wRes) winnerPtsEarned = winPts;
-            const totalPt = groupPts + winnerPtsEarned;
-            return `<tr>
-              <td style="padding:8px;color:var(--text)">${p.nickname||p.name}</td>
-              <td style="padding:8px;font-size:10px;font-family:var(--mono)">${groupDetails || '<span style="color:var(--faint)">no picks</span>'}</td>
-              <td style="padding:8px;text-align:center;color:#90caf9;font-family:var(--mono)">${groupPts}</td>
-              <td style="padding:8px;text-align:center;color:${winnerPtsEarned>0?'#66bb6a':'var(--muted)'};font-family:var(--mono)">
-                ${wPick ? (wRes ? (winnerPtsEarned > 0 ? `+${winnerPtsEarned} ✅` : '0 ❌') : wPick) : '—'}
-              </td>
-              <td style="padding:8px;text-align:right;font-weight:700;color:#4CAF50;font-family:var(--mono)">${totalPt}</td>
-            </tr>`;
-          }).join('');
-
-          return `<div class="card" style="border-color:rgba(76,175,80,0.2);margin-top:4px">
-            <div class="card-title" style="color:#66bb6a;margin-bottom:10px">📊 Live Score Preview</div>
-            <p style="color:var(--muted);font-size:11px;margin-bottom:10px">
-              Groups with results set: <strong style="color:var(--text)">${groupsWithResults} / 12</strong>
-              · Tournament winner: <strong style="color:${winnerSet?'#66bb6a':'var(--faint)'}">${winnerSet ? ptBr['pt_winner'].answer : 'not set'}</strong>
-            </p>
-            ${players.length === 0
-              ? '<p style="color:var(--muted);font-size:13px">No players registered yet.</p>'
-              : `<table style="width:100%;border-collapse:collapse;font-size:12px">
-                <thead><tr style="border-bottom:1px solid var(--gold)">
-                  <th style="padding:5px 8px;text-align:left;color:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:0.1em">PLAYER</th>
-                  <th style="padding:5px 8px;color:var(--muted);font-family:var(--mono);font-size:10px">GROUP BREAKDOWN</th>
-                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">GROUP PTS</th>
-                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">WINNER</th>
-                  <th style="padding:5px 8px;text-align:right;color:var(--muted);font-family:var(--mono);font-size:10px">TOTAL</th>
-                </tr></thead>
-                <tbody>${previewRows}</tbody>
-              </table>`}
-          </div>`;
-        })()}
-        ${(() => {
           const ptQs = getActiveQuestions('pt');
           const qRows = ptQs.map((q, i) => `
             <div style="padding:12px 0;border-bottom:1px solid var(--border2)">
@@ -2172,6 +2117,71 @@ function renderAdmin() {
               These appear to participants in the Pre-Tournament picks tab. Set the correct answer here to auto-score them.
             </p>
             ${qRows || '<p style="color:var(--faint);font-size:13px;margin-bottom:4px">No bonus questions yet. Click "+ Add question" to add one.</p>'}
+          </div>`;
+        })()}
+        ${(() => {
+          const players = S.profiles.filter(p => !p.is_admin);
+          const ptBr = S.bonusResults['pt'] || {};
+          const ptQs = getActiveQuestions('pt');
+          const groupsWithResults = Object.keys(GROUPS).filter(g => ptBr[`pt_${g}_1`]?.answer || ptBr[`pt_${g}_2`]?.answer).length;
+          const winnerSet = !!ptBr['pt_winner']?.answer;
+          const bonusQsWithAnswer = ptQs.filter(q => ptBr[q.id]?.answer).length;
+
+          const previewRows = players.map(p => {
+            const ptBa = S.bonusAnswers[p.id]?.['pt'] || {};
+            let groupPts = 0, winnerPtsEarned = 0, bonusPts = 0;
+            const groupDetails = Object.entries(GROUPS).map(([g]) => {
+              const p1 = ptBa[`pt_${g}_1`]?.answer, p2 = ptBa[`pt_${g}_2`]?.answer;
+              const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
+              if (!r1 && !r2) return null;
+              const qualified = new Set([r1, r2].filter(Boolean));
+              let gPts = 0;
+              if (p1) { if (p1 === r1) gPts += 2; else if (r1 && qualified.has(p1)) gPts += 1; }
+              if (p2) { if (p2 === r2) gPts += 2; else if (r2 && qualified.has(p2)) gPts += 1; }
+              groupPts += gPts;
+              return `<span title="Group ${g}: ${p1||'—'} / ${p2||'—'}" style="font-size:10px;font-family:var(--mono);
+                color:${gPts===4?'#66bb6a':gPts>0?'#90caf9':'var(--faint)'}">${g}:${gPts}</span>`;
+            }).filter(Boolean).join(' ');
+            const wPick = ptBa['pt_winner']?.answer, wRes = ptBr['pt_winner']?.answer;
+            if (wPick && wRes && wPick === wRes) winnerPtsEarned = winPts;
+            for (const bq of ptQs) {
+              const ans = ptBa[bq.id]?.answer;
+              const correct = ptBr[bq.id]?.answer;
+              if (ans && correct && ans === correct) bonusPts += bq.pts;
+            }
+            const totalPt = groupPts + winnerPtsEarned + bonusPts;
+            return `<tr>
+              <td style="padding:8px;color:var(--text)">${p.nickname||p.name}</td>
+              <td style="padding:8px;font-size:10px;font-family:var(--mono)">${groupDetails || '<span style="color:var(--faint)">no picks</span>'}</td>
+              <td style="padding:8px;text-align:center;color:#90caf9;font-family:var(--mono)">${groupPts}</td>
+              <td style="padding:8px;text-align:center;color:${winnerPtsEarned>0?'#66bb6a':'var(--muted)'};font-family:var(--mono)">
+                ${wPick ? (wRes ? (winnerPtsEarned > 0 ? `+${winnerPtsEarned} ✅` : '0 ❌') : wPick) : '—'}
+              </td>
+              <td style="padding:8px;text-align:center;color:${bonusPts>0?'#ffb74d':'var(--muted)'};font-family:var(--mono)">${ptQs.length?bonusPts:'—'}</td>
+              <td style="padding:8px;text-align:right;font-weight:700;color:#4CAF50;font-family:var(--mono)">${totalPt}</td>
+            </tr>`;
+          }).join('');
+
+          return `<div class="card" style="border-color:rgba(76,175,80,0.2);margin-top:12px">
+            <div class="card-title" style="color:#66bb6a;margin-bottom:10px">📊 Live Score Preview</div>
+            <p style="color:var(--muted);font-size:11px;margin-bottom:10px">
+              Groups set: <strong style="color:var(--text)">${groupsWithResults}/12</strong>
+              · Winner: <strong style="color:${winnerSet?'#66bb6a':'var(--faint)'}">${winnerSet?ptBr['pt_winner'].answer:'not set'}</strong>
+              · Bonus answers set: <strong style="color:var(--text)">${bonusQsWithAnswer}/${ptQs.length}</strong>
+            </p>
+            ${players.length === 0
+              ? '<p style="color:var(--muted);font-size:13px">No players registered yet.</p>'
+              : `<table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead><tr style="border-bottom:1px solid var(--gold)">
+                  <th style="padding:5px 8px;text-align:left;color:var(--muted);font-family:var(--mono);font-size:10px">PLAYER</th>
+                  <th style="padding:5px 8px;color:var(--muted);font-family:var(--mono);font-size:10px">GROUPS</th>
+                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">GRP PTS</th>
+                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">WINNER</th>
+                  <th style="padding:5px 8px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:10px">BONUS</th>
+                  <th style="padding:5px 8px;text-align:right;color:var(--muted);font-family:var(--mono);font-size:10px">TOTAL</th>
+                </tr></thead>
+                <tbody>${previewRows}</tbody>
+              </table>`}
           </div>`;
         })()}`;
 
