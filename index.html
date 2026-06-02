@@ -122,7 +122,8 @@ a{color:var(--gold);text-decoration:none;}
 .score-in{width:34px;height:28px;background:rgba(255,255,255,.04);
   border:1px solid var(--border2);color:var(--text);
   text-align:center;font-size:13px;font-weight:400;outline:none;
-  font-family:var(--mono);}
+  font-family:var(--mono);-moz-appearance:textfield;appearance:textfield;}
+.score-in::-webkit-outer-spin-button,.score-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .score-in:disabled{opacity:.5;cursor:default;}
 .pts-badge{font-size:10px;padding:3px 8px;font-weight:500;font-family:var(--mono);
   white-space:nowrap;margin-left:auto;letter-spacing:0.08em;}
@@ -845,9 +846,12 @@ function calcScore(uid) {
       if (!pick || !result || !result.winner) continue;
       if (pick.winner && pick.winner === result.winner) { total += 2 * mMult; correctPicks++; }
       // Exact score is independent of winner pick
-      const sh = String(pick.score_home ?? ''), sa = String(pick.score_away ?? '');
-      const rh = String(result.score_home ?? ''), ra = String(result.score_away ?? '');
-      if (sh !== '' && rh !== '' && sh === rh && sa === ra) { total += 1 * mMult; exactScores++; }
+      const sh = String(pick.score_home ?? '').trim(), sa = String(pick.score_away ?? '').trim();
+      const rh = String(result.score_home ?? '').trim(), ra = String(result.score_away ?? '').trim();
+      if (sh !== '' && sa !== '' && rh !== '' && ra !== '' &&
+          parseInt(sh,10) === parseInt(rh,10) && parseInt(sa,10) === parseInt(ra,10)) {
+        total += 1 * mMult; exactScores++;
+      }
     }
     for (const bq of getActiveQuestions(rid)) {
       const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -861,6 +865,9 @@ function calcScore(uid) {
       }
     }
   }
+  // Admin-set points override (stored in profiles.points_override)
+  const override = parseInt(S.profiles.find(p => p.id === uid)?.points_override ?? 0, 10) || 0;
+  total += override;
   return { total, correctPicks, exactScores };
 }
 
@@ -1196,6 +1203,17 @@ function renderAuth() {
           <button class="btn" id="a-submit" style="width:100%;margin-top:4px;background:#ff7043;color:#fff">
             Enter as Admin →
           </button>
+        ` : S.authMode === 'forgot' ? `
+          <div class="auth-sub" style="margin-bottom:16px">Enter your email and we'll send a reset link</div>
+          <div class="field"><label class="label">Email address</label>
+            <input class="input" id="a-email" type="email" placeholder="you@example.com" autocomplete="email"></div>
+          <button class="btn btn-gold" id="a-submit" style="width:100%;margin-top:4px">Send Reset Link →</button>
+          <div class="auth-switch"><span id="a-toggle">← Back to sign in</span></div>
+        ` : S.authMode === 'reset' ? `
+          <div class="auth-sub" style="margin-bottom:16px">Choose a new password</div>
+          <div class="field"><label class="label">New password</label>
+            <input class="input" id="a-pw" type="password" placeholder="At least 6 characters" autocomplete="new-password"></div>
+          <button class="btn btn-gold" id="a-submit" style="width:100%;margin-top:4px">Set New Password →</button>
         ` : `
           <div class="auth-sub" style="margin-bottom:16px">${isLogin ? 'Sign in to make your picks' : 'Create your account'}</div>
           ${!isLogin ? `
@@ -1209,8 +1227,9 @@ function renderAuth() {
             ${isLogin ? 'Sign In →' : 'Create Account →'}
           </button>
           <div class="auth-switch">
-            ${isLogin ? "Don't have an account? <span id='a-toggle'>Register here</span>"
-                      : "Already registered? <span id='a-toggle'>Sign in</span>"}
+            ${isLogin
+              ? "Don't have an account? <span id='a-toggle'>Register here</span> &nbsp;·&nbsp; <span id='a-forgot'>Forgot password?</span>"
+              : "Already registered? <span id='a-toggle'>Sign in</span>"}
           </div>
         `}
       </div>
@@ -1225,10 +1244,18 @@ function renderAuth() {
   if (isAdmin) {
     document.getElementById('a-pin').onkeydown = e => { if (e.key === 'Enter') doAdminPin(); };
     document.getElementById('a-submit').onclick = doAdminPin;
+  } else if (S.authMode === 'forgot') {
+    document.getElementById('a-toggle').onclick = () => { S.authMode = 'login'; renderAuth(); };
+    document.getElementById('a-email').onkeydown = e => { if (e.key === 'Enter') doForgotPassword(); };
+    document.getElementById('a-submit').onclick = doForgotPassword;
+  } else if (S.authMode === 'reset') {
+    document.getElementById('a-pw').onkeydown = e => { if (e.key === 'Enter') doResetPassword(); };
+    document.getElementById('a-submit').onclick = doResetPassword;
   } else {
     document.getElementById('a-toggle').onclick = () => { S.authMode = isLogin ? 'register' : 'login'; renderAuth(); };
     document.getElementById('a-pw').onkeydown = e => { if (e.key === 'Enter') doAuth(); };
     document.getElementById('a-submit').onclick = doAuth;
+    if (isLogin) document.getElementById('a-forgot')?.addEventListener('click', () => { S.authMode = 'forgot'; renderAuth(); });
   }
 }
 
@@ -1297,7 +1324,44 @@ async function doAuth() {
     const { data, error } = await sb.auth.signUp({ email, password: pw });
     if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
     await sb.from('profiles').insert({ id: data.user.id, name });
+    // Add profile to local state immediately so leaderboard shows the name right away
+    if (!S.profiles) S.profiles = [];
+    S.profiles.push({ id: data.user.id, name, is_admin: false });
     showMsg(msgEl, 'Account created! Signing you in…', 'ok');
+  }
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById('a-email').value.trim();
+  const msgEl = document.getElementById('auth-msg');
+  const btn   = document.getElementById('a-submit');
+  if (!email) { showMsg(msgEl, 'Please enter your email address.', 'err'); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.href.split('#')[0],
+  });
+  if (error) {
+    showMsg(msgEl, error.message, 'err');
+    btn.disabled = false; btn.textContent = 'Send Reset Link →';
+  } else {
+    showMsg(msgEl, '✅ Reset link sent! Check your inbox (and spam folder).', 'ok');
+    btn.disabled = true;
+  }
+}
+
+async function doResetPassword() {
+  const pw    = document.getElementById('a-pw').value;
+  const msgEl = document.getElementById('auth-msg');
+  const btn   = document.getElementById('a-submit');
+  if (!pw || pw.length < 6) { showMsg(msgEl, 'Password must be at least 6 characters.', 'err'); return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const { error } = await sb.auth.updateUser({ password: pw });
+  if (error) {
+    showMsg(msgEl, error.message, 'err');
+    btn.disabled = false; btn.textContent = 'Set New Password →';
+  } else {
+    showMsg(msgEl, '✅ Password updated! You are now signed in.', 'ok');
+    setTimeout(() => { S.authMode = 'login'; }, 1500);
   }
 }
 
@@ -1518,8 +1582,8 @@ function renderPicks() {
       };
       const hasResults = !!(r1 || r2);
 
-      const opts1 = teams.map(t => `<option value="${t}" ${p1===t?'selected':''}>${F(t)} ${t}</option>`).join('');
-      const opts2 = teams.map(t => `<option value="${t}" ${p2===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+      const opts1 = teams.map(t => `<option value="${t}" ${p1===t?'selected':''} ${t===p2&&p2?'disabled':''} style="${t===p2&&p2?'display:none':''}">${F(t)} ${t}</option>`).join('');
+      const opts2 = teams.map(t => `<option value="${t}" ${p2===t?'selected':''} ${t===p1&&p1?'disabled':''} style="${t===p1&&p1?'display:none':''}">${F(t)} ${t}</option>`).join('');
 
       return `<div class="bonus-q">
         <div class="bonus-q-text" style="font-weight:500;margin-bottom:8px">
@@ -1642,7 +1706,9 @@ function renderPicks() {
 
     // Exact score is independent of winner
     const correctWinner = hasResult && winner === rw;
-    const exactScore = hasResult && rsh !== '' && String(sh) === String(rsh) && String(sa) === String(rsa) && sh !== '';
+    const exactScore = hasResult && sh !== '' && rsh !== '' &&
+      parseInt(String(sh).trim(), 10) === parseInt(String(rsh).trim(), 10) &&
+      parseInt(String(sa).trim(), 10) === parseInt(String(rsa).trim(), 10);
     let pts = '';
     if (hasResult && winner) {
       const earned = (correctWinner ? 2 : 0) + (exactScore ? 1 : 0);
@@ -1662,6 +1728,10 @@ function renderPicks() {
       style="cursor:pointer;border:none;background:transparent;font-size:inherit;padding:3px 8px">
       ${manualLocked ? '🔒 Locked' : '🔓 Unlock'}
     </button>` : '';
+
+    const hasPick = !!(winner || sh !== '' || sa !== '');
+    const clearBtn = (!ro && hasPick) ? `<button class="btn btn-sm" data-action="clear-pick" data-rid="${rid}" data-mid="${m.id}"
+      title="Clear this match" style="font-size:10px;padding:3px 8px;opacity:0.55;border-color:var(--border2);color:var(--muted);flex-shrink:0">✕</button>` : '';
 
     return `<div class="match-row">
       ${teamBtn(homeTeam,false)}
@@ -1685,6 +1755,7 @@ function renderPicks() {
       ${pts}
       ${cdBadge}
       ${adminLockBtn}
+      ${clearBtn}
     </div>`;
   }).join('');
 
@@ -1734,6 +1805,13 @@ function renderPicks() {
     ${bonusQs.length ? `<div class="bonus-section">
       <div class="bonus-title">⭐ Bonus Questions</div>
       ${bonusHtml}
+    </div>` : ''}
+    ${!isAdmin && !isPinAdmin ? `
+    <div id="submit-picks-wrap" style="margin-top:8px">
+      <button class="btn btn-gold" id="submit-picks-btn" data-rid="${rid}" style="width:100%;font-size:13px;padding:12px">
+        ✅ Save &amp; Confirm Picks
+      </button>
+      <div id="submit-picks-msg" style="margin-top:8px;font-size:12px;font-family:var(--mono)"></div>
     </div>` : ''}`;
 }
 
@@ -2410,6 +2488,7 @@ function renderAdmin() {
       const achs = (p.achievements || []).slice(0, 5)
         .map(a => { const d = ACHIEVEMENTS[a.type]; return d ? `<span title="${d.label}">${d.icon}</span>` : ''; })
         .join('');
+      const override = parseInt(p.points_override ?? 0, 10) || 0;
       return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;
         border-bottom:1px solid var(--border2);flex-wrap:wrap">
         <div style="flex:1;min-width:120px">
@@ -2422,6 +2501,13 @@ function renderAdmin() {
           <span style="color:#ce93d8">${exactScores} 🎯</span>
         </div>
         <div style="font-size:14px;display:flex;gap:2px">${achs}</div>
+        <div style="display:flex;align-items:center;gap:4px" title="Manual points adjustment (positive or negative)">
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);white-space:nowrap">±pts</span>
+          <input class="input admin-pts-override" type="number" value="${override}"
+            data-uid="${p.id}" placeholder="0"
+            style="width:60px;padding:5px 8px;font-size:12px;text-align:center">
+          <button class="btn btn-sm btn-gold admin-pts-save" data-uid="${p.id}" style="padding:5px 9px;font-size:11px">✓</button>
+        </div>
         <button class="btn btn-sm btn-outline" data-view-profile="${p.id}">Profile</button>
       </div>`;
     }).join('');
@@ -2540,9 +2626,11 @@ function calcRoundScore(uid, rid) {
     const result = S.results[rid]?.[m.id];
     if (!pick || !result || !result.winner) continue;
     if (pick.winner && pick.winner === result.winner) pts += 2 * mMult;
-    const sh = String(pick.score_home ?? ''), sa = String(pick.score_away ?? '');
-    const rh = String(result.score_home ?? ''), ra = String(result.score_away ?? '');
-    if (sh !== '' && rh !== '' && sh === rh && sa === ra) pts += 1 * mMult;
+    const sh = String(pick.score_home ?? '').trim(), sa = String(pick.score_away ?? '').trim();
+    const rh = String(result.score_home ?? '').trim(), ra = String(result.score_away ?? '').trim();
+    const scoresMatch = sh !== '' && sa !== '' && rh !== '' && ra !== '' &&
+      parseInt(sh, 10) === parseInt(rh, 10) && parseInt(sa, 10) === parseInt(ra, 10);
+    if (scoresMatch) pts += 1 * mMult;
   }
   for (const bq of getActiveQuestions(rid)) {
     const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -2936,12 +3024,12 @@ function renderResults() {
   const isAdmin    = S.profile?.is_admin;
   const allRoundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
 
-  // For regular users, only show rounds that have results entered.
-  // A locked-but-no-results round is intentionally hidden so players
-  // can't peek at bonus questions before results are published.
+  // For regular users, only show rounds that are locked OR have results entered.
+  // Unlocked future rounds are hidden to prevent peeking at bonus questions before picks close.
   const roundIds = isAdmin
     ? allRoundIds
     : allRoundIds.filter(r =>
+        S.roundSettings[r]?.locked ||
         Object.keys(S.results[r] || {}).length > 0 ||
         Object.keys(S.bonusResults[r] || {}).length > 0
       );
@@ -3237,6 +3325,72 @@ function attachEvents() {
       render();
     };
   });
+
+  // Admin: save points override per player
+  document.querySelectorAll('.admin-pts-save').forEach(btn => {
+    btn.onclick = async () => {
+      const uid = btn.dataset.uid;
+      const inp = document.querySelector(`.admin-pts-override[data-uid="${uid}"]`);
+      const val = parseInt(inp?.value ?? 0, 10) || 0;
+      btn.textContent = '…'; btn.disabled = true;
+      const { error } = await sb.from('profiles').update({ points_override: val }).eq('id', uid);
+      const profile = S.profiles.find(p => p.id === uid);
+      if (profile) profile.points_override = val;
+      btn.textContent = error ? '✗' : '✓'; btn.disabled = false;
+      setTimeout(() => render(), 500);
+    };
+  });
+
+  // Clear individual match pick
+  document.querySelectorAll('[data-action="clear-pick"]').forEach(btn => {
+    btn.onclick = async () => {
+      const { rid, mid } = btn.dataset;
+      await upsertPick(rid, mid, '', '', '');
+      render();
+    };
+  });
+
+  // Submit / confirm picks button
+  const submitBtn = document.getElementById('submit-picks-btn');
+  if (submitBtn) {
+    submitBtn.onclick = async () => {
+      const rid = submitBtn.dataset.rid;
+      const round = ROUNDS[rid];
+      const uid = S.user.id;
+      const warnings = [];
+      for (const m of round.matches) {
+        const pick = S.picks[uid]?.[rid]?.[m.id] || {};
+        const hasWinner = !!pick.winner;
+        const hasHome   = pick.score_home !== '' && pick.score_home != null;
+        const hasAway   = pick.score_away !== '' && pick.score_away != null;
+        const started   = hasWinner || hasHome || hasAway;
+        if (!started) continue;
+        const homeTeam = getBracketTeam(m.id, 'home', m.home);
+        const awayTeam = getBracketTeam(m.id, 'away', m.away);
+        const label = `${homeTeam} vs ${awayTeam}`;
+        if (!hasWinner)         warnings.push(`${label}: no result selected`);
+        else if (!hasHome || !hasAway) warnings.push(`${label}: score is incomplete`);
+      }
+      const msgEl = document.getElementById('submit-picks-msg');
+      if (warnings.length) {
+        msgEl.style.color = '#ff7043';
+        msgEl.innerHTML = '⚠️ ' + warnings.join('<br>⚠️ ');
+      } else {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving…';
+        // Re-upsert all current picks for this round as a confirmation
+        const roundPicks = S.picks[uid]?.[rid] || {};
+        for (const [mid, pick] of Object.entries(roundPicks)) {
+          await upsertPick(rid, mid, pick.winner||'', pick.score_home||'', pick.score_away||'');
+        }
+        msgEl.style.color = '#66bb6a';
+        msgEl.textContent = '✅ Picks saved!';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✅ Save & Confirm Picks';
+        setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 3000);
+      }
+    };
+  }
 
   // Prize config (admin Players tab)
   const prizeAddBtn  = document.getElementById('prize-add-btn');
@@ -3753,6 +3907,18 @@ function showMsg(el, text, type) {
 async function init() {
   loadLocalSettings();
   initTheme();
+
+  // Detect Supabase password-reset redirect (hash contains type=recovery)
+  const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
+  if (hashParams.get('type') === 'recovery') {
+    // Supabase will auto-sign in from the token; show the reset form
+    S.authMode = 'reset';
+    renderAuth();
+    // Clean up the hash from the URL without reloading
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    return;
+  }
+
   const { data: { session } } = await sb.auth.getSession();
 
   if (session?.user) {
@@ -3764,7 +3930,7 @@ async function init() {
   render();
 
   // Check lock schedules every 30 seconds
-  setInterval(checkLockSchedules, 30000);
+  setInterval(checkLockSchedules, 10000);
 
   // React to login/logout events
   sb.auth.onAuthStateChange(async (event, session) => {
