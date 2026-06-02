@@ -668,8 +668,13 @@ function getMultipliers(rid) {
   return { match: S.multipliers[rid]?.match ?? 1, bonus: S.multipliers[rid]?.bonus ?? 1 };
 }
 
-function saveCustomQuestions() {
-  localStorage.setItem('wc26:customBonusQs', JSON.stringify(S.customBonusQs));
+async function saveCustomQuestions() {
+  const json = JSON.stringify(S.customBonusQs);
+  localStorage.setItem('wc26:customBonusQs', json); // local cache
+  await sb.from('app_config').upsert(
+    { key: 'customBonusQs', value: json },
+    { onConflict: 'key' }
+  );
 }
 
 function saveMultipliers() {
@@ -916,6 +921,7 @@ async function loadAllData() {
   const { data: results } = await sb.from('results').select('*');
   S.results = {};
   for (const r of (results || [])) {
+    if (!r.winner) continue; // skip empty/stale rows
     if (!S.results[r.round_id]) S.results[r.round_id] = {};
     S.results[r.round_id][r.match_id] = { winner: r.winner, score_home: r.score_home, score_away: r.score_away };
   }
@@ -932,6 +938,15 @@ async function loadAllData() {
   const { data: rs } = await sb.from('round_settings').select('*');
   S.roundSettings = {};
   for (const r of (rs || [])) S.roundSettings[r.round_id] = { locked: r.locked, deadline: r.deadline };
+
+  // custom bonus questions (stored in app_config so all devices see them)
+  const { data: cqRow } = await sb.from('app_config').select('value').eq('key', 'customBonusQs').single();
+  if (cqRow?.value) {
+    try {
+      S.customBonusQs = JSON.parse(cqRow.value);
+      localStorage.setItem('wc26:customBonusQs', cqRow.value); // keep local cache in sync
+    } catch(e) {}
+  }
 }
 
 async function upsertPick(rid, mid, winner, sh, sa) {
@@ -954,9 +969,16 @@ async function upsertBonusAnswer(rid, qid, answer, wager) {
 }
 
 async function upsertResult(rid, mid, winner, sh, sa) {
-  // Update local state immediately so scoring preview works even if DB write fails
+  // Update local state immediately
   if (!S.results[rid]) S.results[rid] = {};
   S.results[rid][mid] = { winner, score_home: String(sh), score_away: String(sa) };
+
+  // Don't persist empty results to Supabase — if winner is cleared, delete the row instead
+  if (!winner) {
+    await sb.from('results').delete().eq('round_id', rid).eq('match_id', mid);
+    delete S.results[rid][mid];
+    return;
+  }
 
   const { error } = await sb.from('results').upsert(
     { round_id: rid, match_id: mid, winner, score_home: String(sh), score_away: String(sa) },
@@ -3146,8 +3168,8 @@ function renderResults() {
   const roundIds = isAdmin
     ? allRoundIds
     : allRoundIds.filter(r =>
-        Object.keys(S.results[r] || {}).length > 0 ||
-        Object.keys(S.bonusResults[r] || {}).length > 0
+        Object.values(S.results[r] || {}).some(res => res.winner) ||
+        Object.values(S.bonusResults[r] || {}).some(res => res.answer)
       );
 
   // If the active round is now hidden, fall back to the first visible one
