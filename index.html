@@ -1763,19 +1763,14 @@ function renderPicks() {
       <span class="vs">vs</span>
       ${teamBtn(awayTeam,false)}
       ${!round.knockout ? teamBtn('Draw',true) : ''}
-      <div class="score-wrap" style="flex-direction:column;gap:2px;align-items:center">
-        <div style="display:flex;gap:2px;align-items:center">
-          <span style="font-size:9px;color:var(--muted);font-family:var(--mono);width:34px;text-align:center">H</span>
-          <span style="font-size:9px;color:var(--faint);font-family:var(--mono);padding:0 2px"> </span>
-          <span style="font-size:9px;color:var(--muted);font-family:var(--mono);width:34px;text-align:center">A</span>
-        </div>
-        <div style="display:flex;gap:4px;align-items:center">
-          <input class="score-in" type="number" min="0" max="20" value="${sh}" placeholder="–"
-            data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="h" ${ro?'disabled':''}>
-          <span class="vs">–</span>
-          <input class="score-in" type="number" min="0" max="20" value="${sa}" placeholder="–"
-            data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="a" ${ro?'disabled':''}>
-        </div>
+      <div class="score-wrap" style="display:flex;gap:4px;align-items:center">
+        <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">H</span>
+        <input class="score-in" type="number" min="0" max="20" value="${sh}" placeholder="–"
+          data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="h" ${ro?'disabled':''}>
+        <span class="vs" style="font-size:11px">–</span>
+        <input class="score-in" type="number" min="0" max="20" value="${sa}" placeholder="–"
+          data-action="score" data-rid="${rid}" data-mid="${m.id}" data-side="a" ${ro?'disabled':''}>
+        <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">A</span>
       </div>
       ${pts}
       ${cdBadge}
@@ -4105,7 +4100,12 @@ async function init() {
   if (session?.user) {
     S.user = session.user;
     const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
-    S.profile = profile;
+    // If this is the admin account, always restore admin status regardless of DB profile
+    if (session.user.email === 'admin@vermanipool.internal') {
+      S.profile = { ...(profile || {}), is_admin: true, name: 'Admin', nickname: 'Admin' };
+    } else {
+      S.profile = profile;
+    }
     await loadAllData();
   }
   render();
@@ -4118,9 +4118,14 @@ async function init() {
     if (event === 'SIGNED_IN' && session?.user) {
       S.user = session.user;
       const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
-      S.profile = profile;
+      if (session.user.email === 'admin@vermanipool.internal') {
+        S.profile = { ...(profile || {}), is_admin: true, name: 'Admin', nickname: 'Admin' };
+        S.page = 'admin';
+      } else {
+        S.profile = profile;
+        S.page = 'dashboard';
+      }
       await loadAllData();
-      S.page = 'dashboard';
       render();
     } else if (event === 'SIGNED_OUT') {
       S.user = null; S.profile = null;
