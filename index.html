@@ -642,6 +642,7 @@ const S = {
   darkMode: true,
   selectedPlayer: null,
   adminTab: 'results',
+  adminTabRounds: {},   // adminTab → last activeRound for that tab
   adminQFilter: 'All',
   customBonusQs: {},      // rid → [{id,text,pts,opts}]
   multipliers: {},        // rid → {match: number, bonus: number}
@@ -1653,7 +1654,31 @@ function renderPicks() {
           </select>
           ${wBadge}
         </div>
-      </div>`;
+      </div>
+      ${(() => {
+        const ptBonusQs = getActiveQuestions('pt');
+        if (!ptBonusQs.length) return '';
+        const ptBonusHtml = ptBonusQs.map(bq => {
+          const ans  = S.bonusAnswers[uid]?.['pt']?.[bq.id] || {};
+          const bres = S.bonusResults['pt']?.[bq.id]?.answer || '';
+          const optsHtml = bq.opts.map(opt => {
+            const isSel = ans.answer === opt;
+            let cls = '';
+            if (isSel && bres) cls = bres === opt ? 'correct' : 'wrong';
+            else if (isSel) cls = 'sel';
+            return `<button class="bopt ${cls}" data-action="bonus" data-rid="pt" data-qid="${bq.id}" data-opt="${opt}" ${readOnly?'disabled':''}>${opt}</button>`;
+          }).join('');
+          const icon = !ans.answer ? '' : !bres ? '' : ans.answer === bres
+            ? `<span class="pts-badge pts-ok">+${bq.pts} pts ✅</span>`
+            : `<span class="pts-badge pts-bad">0 pts ❌</span>`;
+          return `<div class="bonus-q">
+            <div class="bonus-q-text">${bq.text} <span style="color:var(--gold);font-size:10px">[${bq.pts} pts]</span></div>
+            <div class="bonus-opts">${optsHtml}</div>
+            ${icon}
+          </div>`;
+        }).join('');
+        return `<div class="bonus-section"><div class="bonus-title">⭐ Bonus Questions</div>${ptBonusHtml}</div>`;
+      })()}`;
   }
 
   // ── Regular round render ───────────────────────────────────────
@@ -1943,8 +1968,8 @@ function renderAdmin() {
 
   // ── Results tab ──────────────────────────────────────────────
   if (adminTab === 'results') {
-    const round = ROUNDS[S.activeRound];
-    const rid   = round.id;
+    const rid   = S.adminTabRounds['results'] || S.activeRound;
+    const round = ROUNDS[rid] || ROUNDS[S.activeRound];
 
     const pillsHtml = Object.values(ROUNDS).map(r => {
       const lk = S.roundSettings[r.id]?.locked;
@@ -2304,8 +2329,8 @@ function renderAdmin() {
 
   // ── Picks viewer tab ─────────────────────────────────────────
   if (adminTab === 'picks') {
-    const round  = ROUNDS[S.activeRound];
-    const rid    = round.id;
+    const rid    = S.adminTabRounds['picks'] || S.activeRound;
+    const round  = ROUNDS[rid] || ROUNDS[S.activeRound];
 
     const pillsHtml = Object.values(ROUNDS).map(r =>
       `<button class="pill ${S.activeRound===r.id?'active':''}" data-r="${r.id}">${roundLabel(r)}</button>`
@@ -2316,38 +2341,91 @@ function renderAdmin() {
     const playersHtml = otherPlayers.length === 0
       ? '<p style="color:var(--muted);font-size:13px">No players yet.</p>'
       : otherPlayers.map(player => {
-          const matchRows = round.matches.map(m => {
-            const pick   = S.picks[player.id]?.[rid]?.[m.id] || {};
-            const result = S.results[rid]?.[m.id] || {};
-            const hasRes = !!result.winner;
-            const icon   = !pick.winner ? '' : !hasRes ? '⏳' : pick.winner === result.winner ? '✅' : '❌';
-            const score  = pick.winner && pick.score_home !== '' && pick.score_home !== undefined
-              ? ` (${pick.score_home}–${pick.score_away})` : '';
-            const matchLabel = m.label ? ` <span style="font-size:10px;color:#ff7043">[${m.label}]</span>` : '';
-            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
-              border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
-              <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
-              <span style="color:${pick.winner?'var(--text)':'var(--faint)'}">
-                ${pick.winner ? `${pick.winner}${score} ${icon}` : '— no pick —'}
-              </span>
-            </div>`;
-          }).join('');
+          let picksContent = '';
 
-          const bonusRows = getActiveQuestions(rid).map(bq => {
-            const ans    = S.bonusAnswers[player.id]?.[rid]?.[bq.id] || {};
-            const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
-            const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
-            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
-              border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
-              <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
-              <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer || '—'} ${icon}</span>
-            </div>`;
-          }).join('');
+          if (round.special === 'pretournament') {
+            // Pre-tournament: show group picks + winner pick
+            const ba = S.bonusAnswers[player.id]?.['pt'] || {};
+            const br = S.bonusResults['pt'] || {};
+            const groupRows = Object.entries(GROUPS).map(([g, teams]) => {
+              const p1 = ba[`pt_${g}_1`]?.answer || '';
+              const p2 = ba[`pt_${g}_2`]?.answer || '';
+              const r1 = br[`pt_${g}_1`]?.answer || '';
+              const r2 = br[`pt_${g}_2`]?.answer || '';
+              const qualified = new Set([r1, r2].filter(Boolean));
+              const badge = (pick, res) => {
+                if (!pick) return '<span style="color:var(--faint)">—</span>';
+                if (!res) return `<span style="color:var(--text)">${F(pick)} ${pick}</span>`;
+                if (pick === res) return `<span style="color:#a5d6a7">${F(pick)} ${pick} ✅</span>`;
+                if (qualified.has(pick)) return `<span style="color:#90caf9">${F(pick)} ${pick} 🎯</span>`;
+                return `<span style="color:var(--muted)">${F(pick)} ${pick} ❌</span>`;
+              };
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+                border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
+                <span style="color:var(--muted);min-width:80px;flex-shrink:0;font-family:var(--mono);font-size:11px">GROUP ${g}</span>
+                <span>1st: ${badge(p1, r1)}</span>
+                <span style="color:var(--border2)">·</span>
+                <span>2nd: ${badge(p2, r2)}</span>
+              </div>`;
+            }).join('');
+            const winPick = ba['pt_winner']?.answer || '';
+            const winRes  = br['pt_winner']?.answer  || '';
+            const winBadge = !winPick ? '<span style="color:var(--faint)">— no pick —</span>'
+              : !winRes ? `<span style="color:var(--text)">${F(winPick)} ${winPick}</span>`
+              : winPick === winRes ? `<span style="color:#a5d6a7">${F(winPick)} ${winPick} ✅</span>`
+              : `<span style="color:var(--muted)">${F(winPick)} ${winPick} ❌</span>`;
+            const ptExtraBonusRows = getActiveQuestions('pt').map(bq => {
+              const ans     = S.bonusAnswers[player.id]?.['pt']?.[bq.id] || {};
+              const correct = S.bonusResults['pt']?.[bq.id]?.answer || '';
+              const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+                border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
+                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
+                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer||'—'} ${icon}</span>
+              </div>`;
+            }).join('');
+            picksContent = `
+              ${groupRows}
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12px;margin-top:4px">
+                <span style="color:var(--gold);min-width:80px;flex-shrink:0;font-family:var(--mono);font-size:11px">🏆 WINNER</span>
+                ${winBadge}
+              </div>
+              ${ptExtraBonusRows ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--gold);margin-bottom:6px">⭐ Bonus</div>${ptExtraBonusRows}</div>` : ''}`;
+          } else {
+            // Regular round: match picks + bonus questions
+            const matchRows = round.matches.map(m => {
+              const pick   = S.picks[player.id]?.[rid]?.[m.id] || {};
+              const result = S.results[rid]?.[m.id] || {};
+              const hasRes = !!result.winner;
+              const icon   = !pick.winner ? '' : !hasRes ? '⏳' : pick.winner === result.winner ? '✅' : '❌';
+              const score  = pick.winner && pick.score_home !== '' && pick.score_home !== undefined
+                ? ` (${pick.score_home}–${pick.score_away})` : '';
+              const matchLabel = m.label ? ` <span style="font-size:10px;color:#ff7043">[${m.label}]</span>` : '';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+                border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
+                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+                <span style="color:${pick.winner?'var(--text)':'var(--faint)'}">
+                  ${pick.winner ? `${pick.winner}${score} ${icon}` : '— no pick —'}
+                </span>
+              </div>`;
+            }).join('');
+            const bonusRows = getActiveQuestions(rid).map(bq => {
+              const ans     = S.bonusAnswers[player.id]?.[rid]?.[bq.id] || {};
+              const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
+              const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+                border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
+                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
+                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer || '—'} ${icon}</span>
+              </div>`;
+            }).join('');
+            picksContent = matchRows +
+              (round.bonusQuestions.length ? `<div style="margin-top:10px"><div style="font-size:11px;color:var(--gold);margin-bottom:6px">⭐ Bonus</div>${bonusRows}</div>` : '');
+          }
 
           return `<div class="card" style="margin-bottom:10px">
             <div class="card-title" style="margin-bottom:10px">${player.nickname||player.name}</div>
-            ${matchRows}
-            ${round.bonusQuestions.length ? `<div style="margin-top:10px"><div style="font-size:11px;color:var(--gold);margin-bottom:6px">⭐ Bonus</div>${bonusRows}</div>` : ''}
+            ${picksContent}
           </div>`;
         }).join('');
 
@@ -2395,8 +2473,8 @@ function renderAdmin() {
     ];
 
     // ── Round selector ───────────────────────────────────────────
-    const qRid = S.activeRound;
-    const qRound = ROUNDS[qRid];
+    const qRid = S.adminTabRounds['questions'] || S.activeRound;
+    const qRound = ROUNDS[qRid] || ROUNDS[S.activeRound];
     const qPillsHtml = Object.values(ROUNDS).map(r =>
       `<button class="pill ${qRid===r.id?'active':''}" data-r="${r.id}">${roundLabel(r)}</button>`
     ).join('');
@@ -3024,12 +3102,11 @@ function renderResults() {
   const isAdmin    = S.profile?.is_admin;
   const allRoundIds = Object.keys(ROUNDS).filter(rid => rid !== 'pt');
 
-  // For regular users, only show rounds that are locked OR have results entered.
-  // Unlocked future rounds are hidden to prevent peeking at bonus questions before picks close.
+  // For regular users, only show rounds that have results entered.
+  // Lock state is irrelevant here — a round appears once the admin has entered at least one result.
   const roundIds = isAdmin
     ? allRoundIds
     : allRoundIds.filter(r =>
-        S.roundSettings[r]?.locked ||
         Object.keys(S.results[r] || {}).length > 0 ||
         Object.keys(S.bonusResults[r] || {}).length > 0
       );
@@ -3216,27 +3293,40 @@ function renderRules() {
 // ════════════════════════════════════════════════════════════════
 // 8. MAIN RENDER + EVENT DELEGATION
 // ════════════════════════════════════════════════════════════════
+let _renderPending = false;
 function render() {
-  if (!S.user) { renderAuth(); return; }
-  let content = '';
-  switch(S.page) {
-    case 'dashboard':   content = renderDashboard(); break;
-    case 'picks':       content = renderPicks(); break;
-    case 'groups':      content = renderGroups(); break;
-    case 'bracket':     content = renderBracket(); break;
-    case 'leaderboard': content = renderLeaderboard(); break;
-    case 'results':     content = renderResults(); break;
-    case 'admin':       content = renderAdmin(); break;
-    case 'rules':       content = renderRules(); break;
-  }
-  renderShell(content);
-  attachEvents();
+  if (_renderPending) return;
+  _renderPending = true;
+  requestAnimationFrame(() => {
+    _renderPending = false;
+    if (!S.user) { renderAuth(); return; }
+    let content = '';
+    switch(S.page) {
+      case 'dashboard':   content = renderDashboard(); break;
+      case 'picks':       content = renderPicks(); break;
+      case 'groups':      content = renderGroups(); break;
+      case 'bracket':     content = renderBracket(); break;
+      case 'leaderboard': content = renderLeaderboard(); break;
+      case 'results':     content = renderResults(); break;
+      case 'admin':       content = renderAdmin(); break;
+      case 'rules':       content = renderRules(); break;
+    }
+    renderShell(content);
+    attachEvents();
+  });
 }
 
 function attachEvents() {
   // Round pill selectors
   document.querySelectorAll('[data-r]').forEach(btn => {
-    btn.onclick = () => { S.activeRound = btn.dataset.r; render(); };
+    btn.onclick = () => {
+      S.activeRound = btn.dataset.r;
+      // Remember per-admin-tab round selection so switching tabs doesn't lose your place
+      if (S.page === 'admin' && S.adminTab) {
+        S.adminTabRounds[S.adminTab] = btn.dataset.r;
+      }
+      render();
+    };
   });
 
   // Avatar upload
