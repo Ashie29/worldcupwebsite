@@ -677,7 +677,9 @@ function saveCustomQuestions() {
     sb.from('round_settings').upsert(
       { round_id: rid, custom_questions: JSON.stringify(qs) },
       { onConflict: 'round_id' }
-    );
+    ).then(({ error }) => {
+      if (error) console.warn('saveCustomQuestions failed for', rid, error.message);
+    });
   }
 }
 
@@ -1520,9 +1522,9 @@ function renderShell(content) {
     };
   });
 
-  // Sign out buttons
-  const doSignOut = async () => {
-    await sb.auth.signOut();
+  // Sign out buttons — clear state immediately, don't wait on Supabase
+  const doSignOut = () => {
+    sb.auth.signOut();
     S.user = null; S.profile = null; S.page = 'dashboard';
     renderAuth();
   };
