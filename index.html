@@ -2090,6 +2090,50 @@ function renderAdmin() {
                 <tbody>${previewRows}</tbody>
               </table>`}
           </div>`;
+        })()}
+        ${(() => {
+          const ptQs = getActiveQuestions('pt');
+          const qRows = ptQs.map((q, i) => `
+            <div style="padding:12px 0;border-bottom:1px solid var(--border2)">
+              <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px">
+                <span style="font-size:11px;color:var(--muted);width:20px;padding-top:10px;flex-shrink:0">${i+1}.</span>
+                <textarea rows="2" data-ptq-text="${i}" style="flex:1;min-width:180px;background:rgba(255,255,255,0.06);
+                  border:1.5px solid rgba(255,255,255,0.12);color:var(--text);
+                  padding:8px 10px;font-size:12px;font-family:Arial,sans-serif;resize:vertical">${q.text.replace(/</g,'&lt;')}</textarea>
+                <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+                  <label style="font-size:10px;color:var(--muted)">Pts</label>
+                  <input type="number" min="1" max="20" data-ptq-pts="${i}" value="${q.pts}"
+                    style="width:52px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);
+                    color:var(--gold);text-align:center;font-size:14px;font-weight:700;padding:6px 4px;font-family:Arial,sans-serif">
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:28px">
+                <span style="font-size:10px;color:var(--muted);flex-shrink:0">Options (comma-separated):</span>
+                <input data-ptq-opts="${i}" value="${q.opts.join(', ')}"
+                  style="flex:1;min-width:140px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+                  color:var(--text);padding:5px 8px;font-size:11px;font-family:Arial,sans-serif">
+                <button class="btn btn-gold btn-sm" data-ptq-save="${i}">Save</button>
+                <button class="btn btn-danger btn-sm" data-ptq-del="${i}">Delete</button>
+              </div>
+              <div style="padding-left:28px;margin-top:8px">
+                <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px;font-family:var(--mono)">CORRECT ANSWER</label>
+                <select class="admin-select" data-ptq-result="${i}" data-qid="${q.id}" style="min-width:160px">
+                  <option value="">— Not set —</option>
+                  ${q.opts.map(o => `<option value="${o}" ${S.bonusResults['pt']?.[q.id]?.answer===o?'selected':''}>${o}</option>`).join('')}
+                </select>
+              </div>
+            </div>`).join('');
+
+          return `<div class="card" style="margin-top:12px;border-color:rgba(255,215,0,0.15)">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+              <div class="card-title" style="margin:0">⭐ Bonus Questions</div>
+              <button class="btn btn-sm btn-outline" id="pt-add-blank-q-btn">＋ Add question</button>
+            </div>
+            <p style="color:var(--muted);font-size:11px;margin-bottom:12px">
+              These appear to participants in the Pre-Tournament picks tab. Set the correct answer here to auto-score them.
+            </p>
+            ${qRows || '<p style="color:var(--faint);font-size:13px;margin-bottom:4px">No bonus questions yet. Click "+ Add question" to add one.</p>'}
+          </div>`;
         })()}`;
 
     } else {
@@ -3412,6 +3456,53 @@ function attachEvents() {
         S.manualMatchLocks[mid] = true;
       }
       localStorage.setItem('wc26:manualMatchLocks', JSON.stringify(S.manualMatchLocks));
+      render();
+    };
+  });
+
+  // Pre-tournament bonus question editor (inline in Admin Results tab)
+  const ptAddBlankBtn = document.getElementById('pt-add-blank-q-btn');
+  if (ptAddBlankBtn) {
+    ptAddBlankBtn.onclick = () => {
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions('pt')));
+      qs.push({ id: `ptq_${Date.now()}`, text: 'New question', pts: 2, opts: ['Yes', 'No'] });
+      S.customBonusQs['pt'] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  }
+
+  document.querySelectorAll('[data-ptq-save]').forEach(btn => {
+    btn.onclick = () => {
+      const i  = Number(btn.dataset.ptqSave);
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions('pt')));
+      qs[i] = {
+        ...qs[i],
+        text: document.querySelector(`[data-ptq-text="${i}"]`)?.value || qs[i].text,
+        pts:  Number(document.querySelector(`[data-ptq-pts="${i}"]`)?.value) || qs[i].pts,
+        opts: document.querySelector(`[data-ptq-opts="${i}"]`)?.value.split(',').map(o => o.trim()).filter(Boolean) || qs[i].opts,
+      };
+      S.customBonusQs['pt'] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-ptq-del]').forEach(btn => {
+    btn.onclick = () => {
+      const i  = Number(btn.dataset.ptqDel);
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions('pt')));
+      qs.splice(i, 1);
+      S.customBonusQs['pt'] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-ptq-result]').forEach(sel => {
+    sel.onchange = async () => {
+      const qid = sel.dataset.qid;
+      await upsertBonusResult('pt', qid, sel.value);
       render();
     };
   });
