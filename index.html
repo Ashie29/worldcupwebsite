@@ -841,8 +841,8 @@ function calcScore(uid) {
     const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
     if (!r1 && !r2) continue;
     const qualified = new Set([r1, r2].filter(Boolean));
-    if (p1) { if (p1 === r1) total += 2; else if (r1 && qualified.has(p1)) total += 1; }
-    if (p2) { if (p2 === r2) total += 2; else if (r2 && qualified.has(p2)) total += 1; }
+    if (p1) { if (p1 === r1) total += 2; else if (qualified.has(p1)) total += 1; }
+    if (p2) { if (p2 === r2) total += 2; else if (qualified.has(p2)) total += 1; }
   }
   const winPts = S.ptSettings?.winnerPts ?? 10;
   const winPick = ptBa['pt_winner']?.answer, winRes = ptBr['pt_winner']?.answer;
@@ -2148,8 +2148,8 @@ function renderAdmin() {
               if (!r1 && !r2) return null;
               const qualified = new Set([r1, r2].filter(Boolean));
               let gPts = 0;
-              if (p1) { if (p1 === r1) gPts += 2; else if (r1 && qualified.has(p1)) gPts += 1; }
-              if (p2) { if (p2 === r2) gPts += 2; else if (r2 && qualified.has(p2)) gPts += 1; }
+              if (p1) { if (p1 === r1) gPts += 2; else if (qualified.has(p1)) gPts += 1; }
+              if (p2) { if (p2 === r2) gPts += 2; else if (qualified.has(p2)) gPts += 1; }
               groupPts += gPts;
               return `<span title="Group ${g}: ${p1||'—'} / ${p2||'—'}" style="font-size:10px;font-family:var(--mono);
                 color:${gPts===4?'#66bb6a':gPts>0?'#90caf9':'var(--faint)'}">${g}:${gPts}</span>`;
@@ -2792,8 +2792,8 @@ function calcRoundScore(uid, rid) {
       const r1 = ptBr[`pt_${g}_1`]?.answer,  r2 = ptBr[`pt_${g}_2`]?.answer;
       if (!r1 && !r2) continue;
       const qualified = new Set([r1, r2].filter(Boolean));
-      if (p1) { if (p1 === r1) pts += 2; else if (r1 && qualified.has(p1)) pts += 1; }
-      if (p2) { if (p2 === r2) pts += 2; else if (r2 && qualified.has(p2)) pts += 1; }
+      if (p1) { if (p1 === r1) pts += 2; else if (qualified.has(p1)) pts += 1; }
+      if (p2) { if (p2 === r2) pts += 2; else if (qualified.has(p2)) pts += 1; }
     }
     const winPts = S.ptSettings?.winnerPts ?? 10;
     const winPick = ptBa['pt_winner']?.answer, winRes = ptBr['pt_winner']?.answer;
