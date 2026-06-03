@@ -1359,14 +1359,26 @@ async function doAuth() {
 
   if (!email || !pw) { showMsg(msgEl, 'Please fill in all fields.', 'err'); return; }
   btn.disabled = true; btn.textContent = 'Please wait…';
+  const authTimeout = setTimeout(() => {
+    if (btn.disabled) { btn.disabled = false; btn.textContent = 'Sign In →'; showMsg(msgEl, 'Took too long — please try again.', 'err'); }
+  }, 15000);
 
   if (S.authMode === 'login') {
-    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
-    if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Sign In →'; }
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+    clearTimeout(authTimeout);
+    if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Sign In →'; return; }
+    // Drive the login flow directly — don't rely solely on onAuthStateChange which can hang
+    S.user = data.user;
+    const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
+    S.profile = profile;
+    await loadAllData();
+    S.page = 'dashboard';
+    render();
   } else {
     const name = document.getElementById('a-name').value.trim();
-    if (!name) { showMsg(msgEl, 'Please enter a display name.', 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
+    if (!name) { clearTimeout(authTimeout); showMsg(msgEl, 'Please enter a display name.', 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
     const { data, error } = await sb.auth.signUp({ email, password: pw });
+    clearTimeout(authTimeout);
     if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
     await sb.from('profiles').insert({ id: data.user.id, name });
     // Add profile to local state immediately so leaderboard shows the name right away
@@ -1980,7 +1992,7 @@ function renderLeaderboard() {
         </tr></thead>
         <tbody>${rows||'<tr><td colspan="7" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
       </table>
-      <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores · Click a player to view profile</p>
+      <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most exact scores → most correct picks· Click a player to view profile</p>
     </div>`;
 }
 
