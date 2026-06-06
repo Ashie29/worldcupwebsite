@@ -216,6 +216,8 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .spin{display:flex;align-items:center;justify-content:center;padding:80px;
   font-size:40px;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.live-dot{display:inline-block;animation:livepulse 1.2s ease-in-out infinite;}
 
 /* ── Hamburger & Sidebar ──────────────────────────────────────── */
 .hamburger{background:transparent;border:none;cursor:pointer;
@@ -1432,6 +1434,7 @@ function renderShell(content) {
     { id:'picks', label:'My Picks' },
     { id:'leaderboard', label:'Leaderboard' },
     { id:'results', label:'Results' },
+    { id:'history', label:'Match History' },
     { id:'groups', label:'Groups' },
     { id:'bracket', label:'Bracket' },
     { id:'rules', label:'Rules' },
@@ -2781,6 +2784,118 @@ function renderAdmin() {
     ${tabContent}`;
 }
 
+// ── Match History page ────────────────────────────────────────────
+function renderHistory() {
+  const players = S.profiles.filter(p => !p.is_admin);
+  const now = Date.now();
+  const LOCK_BEFORE = 3600000;
+
+  const isMatchLocked = (round, match) => {
+    const ko = getKickoff(match.id, match.kickoff);
+    if (!ko) return false;
+    return !!(S.roundSettings[round.id]?.locked || S.manualMatchLocks[match.id] || now >= new Date(ko).getTime() - LOCK_BEFORE);
+  };
+
+  // Build list of all played/locked rounds (non-PT)
+  const roundsWithMatches = Object.values(ROUNDS).filter(r =>
+    r.special !== 'pretournament' &&
+    r.matches.some(m => isMatchLocked(r, m))
+  );
+
+  if (!roundsWithMatches.length) {
+    return `<div class="page-title">Match History</div>
+      <div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">
+        No matches have locked yet — check back once the tournament starts.</p></div>`;
+  }
+
+  const buildPicksTable = (round, match) => {
+    const result  = S.results[round.id]?.[match.id] || {};
+    const hasResult = !!result.winner;
+    const { match: mMult } = getMultipliers(round.id);
+    const rows = players.map(p => {
+      const pick  = S.picks[p.id]?.[round.id]?.[match.id] || {};
+      const name  = p.nickname || p.name || '—';
+      const wp    = pick.winner || '';
+      const sh    = pick.score_home ?? '';
+      const sa    = pick.score_away ?? '';
+      const hasSc = sh !== '' && sa !== '';
+      const correct    = hasResult && wp && wp === result.winner;
+      const exactScore = hasResult && hasSc && result.score_home !== '' &&
+        parseInt(sh,10) === parseInt(result.score_home,10) &&
+        parseInt(sa,10)  === parseInt(result.score_away,10);
+      const pts = !hasResult ? '' : correct
+        ? `<span style="color:#66bb6a">+${(2+(exactScore?1:0))*mMult}</span>`
+        : `<span style="color:var(--faint)">0</span>`;
+      const pickCol  = !wp ? 'var(--faint)' : !hasResult ? 'var(--text)' : correct ? '#66bb6a' : '#ef5350';
+      const scoreCol = !hasSc ? 'var(--faint)' : !hasResult ? 'var(--muted)' : exactScore ? '#66bb6a' : 'var(--muted)';
+      return `<tr style="border-bottom:1px solid var(--border2)">
+        <td style="padding:6px 8px;color:var(--text);font-size:12px">${name}</td>
+        <td style="padding:6px 8px;color:${pickCol};font-size:12px;font-weight:${correct?'700':'400'}">${wp?`${F(wp)} ${wp}`:'<span style="color:var(--faint)">—</span>'}</td>
+        <td style="padding:6px 8px;text-align:center;color:${scoreCol};font-family:var(--mono);font-size:12px">${hasSc?`${sh} – ${sa}${exactScore?' 🎯':''}`:'<span style="color:var(--faint)">—</span>'}</td>
+        <td style="padding:6px 8px;text-align:right;font-size:11px;font-family:var(--mono)">${pts}</td>
+      </tr>`;
+    }).join('');
+    const resultBar = hasResult ? `
+      <div style="margin-top:8px;padding:6px 10px;background:rgba(102,187,106,0.07);
+        border:1px solid rgba(102,187,106,0.2);font-size:12px;font-family:var(--mono);
+        display:flex;align-items:center;gap:8px">
+        <span style="color:var(--muted)">RESULT</span>
+        <span>${F(result.winner)} <strong style="color:#66bb6a">${result.winner}</strong></span>
+        ${result.score_home!=null&&result.score_home!==''?`<span style="color:var(--muted)">${result.score_home} – ${result.score_away}</span>`:''}
+      </div>` : '';
+    return `<table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
+        <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PLAYER</th>
+        <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PICK</th>
+        <th style="padding:4px 8px;text-align:center;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">SCORE</th>
+        <th style="padding:4px 8px;text-align:right;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PTS</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>${resultBar}`;
+  };
+
+  const roundsHtml = roundsWithMatches.map(round => {
+    const lockedMatches = round.matches.filter(m => isMatchLocked(round, m));
+    const matchRows = lockedMatches.map(match => {
+      const ko = getKickoff(match.id, match.kickoff);
+      const koStr = ko ? new Date(ko).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+      const result = S.results[round.id]?.[match.id] || {};
+      const hasResult = !!result.winner;
+      const homeTeam = getBracketTeam(match.id,'home',match.home);
+      const awayTeam = getBracketTeam(match.id,'away',match.away);
+      const scoreStr = hasResult
+        ? `<span style="font-family:var(--mono);font-weight:700;color:#66bb6a">${result.score_home} – ${result.score_away}</span>`
+        : '';
+      const badge = hasResult
+        ? `<span style="font-size:10px;font-family:var(--mono);color:#66bb6a">✅ FINAL</span>`
+        : `<span style="font-size:10px;font-family:var(--mono);color:#ffb74d">🔒 LOCKED</span>`;
+      const uid = `hist-${match.id}`;
+      return `<div style="border-bottom:1px solid var(--border2)">
+        <div onclick="var d=document.getElementById('${uid}');var a=document.getElementById('${uid}-arr');if(d.style.display==='none'){d.style.display='block';a.textContent='▲';}else{d.style.display='none';a.textContent='▼';}"
+          style="display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--muted);font-family:var(--mono);min-width:90px;flex-shrink:0">${koStr}</span>
+          <span style="font-size:15px;font-family:var(--display);letter-spacing:0.04em;flex:1">${F(homeTeam)} ${homeTeam} <span style="color:var(--muted);font-size:11px">vs</span> ${F(awayTeam)} ${awayTeam}</span>
+          ${scoreStr}
+          ${badge}
+          <span id="${uid}-arr" style="color:var(--muted);font-size:11px;flex-shrink:0">▼</span>
+        </div>
+        <div id="${uid}" style="display:none;padding:0 16px 14px">${buildPicksTable(round, match)}</div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="padding:0;margin-bottom:12px">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border2)">
+        <div class="card-title" style="margin:0">${round.label}</div>
+      </div>
+      ${matchRows}
+    </div>`;
+  }).join('');
+
+  return `<div class="page-title">Match History</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Click any match to see everyone's picks and scores.</p>
+    ${roundsHtml}`;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────
 function calcRoundScore(uid, rid) {
   if (rid === 'pt') {
@@ -2928,6 +3043,178 @@ function renderGroups() {
     </div>`;
 }
 
+function renderLiveMatches() {
+  const now = Date.now();
+  const LOCK_BEFORE = 3600000;   // 1 hr before kickoff — match locks
+  const LIVE_WINDOW = 10800000;  // 3 hrs after kickoff — treated as in-play
+
+  // Flatten all non-PT matches
+  const allMatches = [];
+  for (const round of Object.values(ROUNDS)) {
+    if (round.special === 'pretournament') continue;
+    for (const m of round.matches) {
+      const kickoff = getKickoff(m.id, m.kickoff);
+      if (!kickoff) continue;
+      allMatches.push({ round, match: m, kickoff, koTime: new Date(kickoff).getTime() });
+    }
+  }
+
+  const players = S.profiles.filter(p => !p.is_admin);
+  if (!players.length) return '';
+
+  const isMatchLocked = (round, match, koTime) =>
+    !!(S.roundSettings[round.id]?.locked || S.manualMatchLocks[match.id] || now >= koTime - LOCK_BEFORE);
+
+  // Live / locked window matches (up to 2)
+  const windowMatches = allMatches
+    .filter(({ koTime }) => now >= koTime - LOCK_BEFORE && now <= koTime + LIVE_WINDOW)
+    .sort((a, b) => a.koTime - b.koTime)
+    .slice(0, 2);
+
+  // Last 3 completed matches outside the live window, newest first
+  const windowIds = new Set(windowMatches.map(w => w.match.id));
+  const previousMatches = allMatches
+    .filter(({ round, match }) =>
+      !windowIds.has(match.id) && S.results[round.id]?.[match.id]?.winner)
+    .sort((a, b) => b.koTime - a.koTime)
+    .slice(0, 3);
+
+  if (!windowMatches.length && !previousMatches.length) return '';
+
+  // ── shared match card builder ─────────────────────────────────
+  const buildCard = ({ round, match, kickoff, koTime }, compact = false) => {
+    const locked    = isMatchLocked(round, match, koTime);
+    const result    = S.results[round.id]?.[match.id] || {};
+    const hasResult = !!result.winner;
+    const isLive    = !hasResult && now >= koTime && now <= koTime + LIVE_WINDOW;
+    const homeTeam  = getBracketTeam(match.id, 'home', match.home);
+    const awayTeam  = getBracketTeam(match.id, 'away', match.away);
+    const koStr     = new Date(kickoff).toLocaleString(undefined,
+      { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+
+    let statusBadge, cardBorder;
+    if (hasResult) {
+      statusBadge = `<span style="font-size:10px;font-family:var(--mono);color:#66bb6a;letter-spacing:0.1em">✅ FINAL</span>`;
+      cardBorder  = compact ? 'var(--border)' : 'rgba(102,187,106,0.2)';
+    } else if (isLive) {
+      statusBadge = `<span style="font-size:10px;font-family:var(--mono);color:#ff5252;letter-spacing:0.1em"><span class="live-dot">●</span> LIVE</span>`;
+      cardBorder  = 'rgba(255,82,82,0.25)';
+    } else {
+      statusBadge = `<span style="font-size:10px;font-family:var(--mono);color:#ffb74d;letter-spacing:0.1em">🔒 LOCKED</span>`;
+      cardBorder  = 'rgba(255,183,77,0.2)';
+    }
+
+    const { match: mMult } = getMultipliers(round.id);
+    const picksTableHtml = !locked
+      ? `<p style="color:var(--muted);font-size:12px;margin-top:10px;font-family:var(--mono)">Picks revealed 1 hour before kickoff</p>`
+      : (() => {
+          const rows = players.map(p => {
+            const pick  = S.picks[p.id]?.[round.id]?.[match.id] || {};
+            const name  = p.nickname || p.name || '—';
+            const wp    = pick.winner || '';
+            const sh    = pick.score_home ?? '';
+            const sa    = pick.score_away ?? '';
+            const hasSc = sh !== '' && sa !== '';
+            const correct    = hasResult && wp && wp === result.winner;
+            const exactScore = hasResult && hasSc && result.score_home !== '' &&
+              parseInt(sh,10) === parseInt(result.score_home,10) &&
+              parseInt(sa,10)  === parseInt(result.score_away,10);
+            const pts = !hasResult ? '' : correct
+              ? `<span style="color:#66bb6a">+${(2 + (exactScore?1:0)) * mMult}</span>`
+              : `<span style="color:var(--faint)">0</span>`;
+            const pickCol  = !wp ? 'var(--faint)' : !hasResult ? 'var(--text)' : correct ? '#66bb6a' : '#ef5350';
+            const scoreCol = !hasSc ? 'var(--faint)' : !hasResult ? 'var(--muted)' : exactScore ? '#66bb6a' : 'var(--muted)';
+            return `<tr style="border-bottom:1px solid var(--border2)">
+              <td style="padding:5px 8px;color:var(--text);font-size:12px">${name}</td>
+              <td style="padding:5px 8px;color:${pickCol};font-size:12px;font-weight:${correct?'700':'400'}">${wp ? `${F(wp)} ${wp}` : '<span style="color:var(--faint)">—</span>'}</td>
+              <td style="padding:5px 8px;text-align:center;color:${scoreCol};font-family:var(--mono);font-size:12px">${hasSc ? `${sh} – ${sa}${exactScore?' 🎯':''}` : '<span style="color:var(--faint)">—</span>'}</td>
+              <td style="padding:5px 8px;text-align:right;font-size:11px;font-family:var(--mono)">${pts}</td>
+            </tr>`;
+          }).join('');
+          const resultBar = hasResult ? `
+            <div style="margin-top:8px;padding:6px 10px;background:rgba(102,187,106,0.07);
+              border:1px solid rgba(102,187,106,0.2);font-size:12px;font-family:var(--mono);
+              display:flex;align-items:center;gap:8px">
+              <span style="color:var(--muted)">RESULT</span>
+              <span>${F(result.winner)} <strong style="color:#66bb6a">${result.winner}</strong></span>
+              ${result.score_home !== '' && result.score_home != null
+                ? `<span style="color:var(--muted)">${result.score_home} – ${result.score_away}</span>` : ''}
+            </div>` : '';
+          return `<table style="width:100%;border-collapse:collapse;margin-top:10px">
+            <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
+              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PLAYER</th>
+              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PICK</th>
+              <th style="padding:4px 8px;text-align:center;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">SCORE</th>
+              <th style="padding:4px 8px;text-align:right;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PTS</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>${resultBar}`;
+        })();
+
+    const roundShort = round.label.replace('Group Stage – ','GS ').toUpperCase();
+    const nameSize   = compact ? '16px' : '20px';
+    const uid = `picks-${match.id}`;
+
+    // Compact (previous): collapsed by default, click header to expand
+    if (compact) {
+      const scoreStr = hasResult
+        ? `<span style="font-family:var(--mono);font-size:13px;color:#66bb6a;font-weight:700">${result.score_home} – ${result.score_away}</span>`
+        : '';
+      return `<div class="card" style="border-color:${cardBorder};margin-bottom:8px;padding:0">
+        <div onclick="var d=document.getElementById('${uid}');var a=document.getElementById('${uid}-arrow');if(d.style.display==='none'){d.style.display='block';a.textContent='▲';}else{d.style.display='none';a.textContent='▼';}"
+          style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1">
+            <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">${roundShort} · ${koStr}</span>
+            <span style="font-size:15px;font-family:var(--display);letter-spacing:0.04em">${F(homeTeam)} ${homeTeam} <span style="color:var(--muted);font-size:11px">vs</span> ${F(awayTeam)} ${awayTeam}</span>
+            ${scoreStr}
+            ${statusBadge}
+          </div>
+          <span id="${uid}-arrow" style="color:var(--muted);font-size:11px;margin-left:12px;flex-shrink:0">▼</span>
+        </div>
+        <div id="${uid}" style="display:none;padding:0 16px 14px">
+          ${picksTableHtml}
+        </div>
+      </div>`;
+    }
+
+    // Live / full: always expanded
+    return `<div class="card" style="border-color:${cardBorder};margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px">
+        <span style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.07em">${roundShort} · ${koStr}</span>
+        ${statusBadge}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+        <span style="font-size:${nameSize};font-family:var(--display);letter-spacing:0.05em">${F(homeTeam)} ${homeTeam}</span>
+        <span style="color:var(--muted);font-size:11px;font-family:var(--mono)">VS</span>
+        <span style="font-size:${nameSize};font-family:var(--display);letter-spacing:0.05em">${F(awayTeam)} ${awayTeam}</span>
+      </div>
+      ${picksTableHtml}
+    </div>`;
+  };
+
+  // ── Live Now section ──────────────────────────────────────────
+  const liveSection = windowMatches.length ? `
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--display);font-size:22px;letter-spacing:0.08em;color:var(--text);margin-bottom:10px">🔴 LIVE NOW</div>
+      ${windowMatches.map(m => buildCard(m, false)).join('')}
+    </div>` : '';
+
+  // ── Recent Matches section (last 3, dashboard only) ──────────
+  let prevSection = '';
+  if (previousMatches.length) {
+    prevSection = `
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-family:var(--display);font-size:22px;letter-spacing:0.08em;color:var(--text)">📋 RECENT MATCHES</div>
+          <button class="btn btn-sm btn-outline" onclick="S.page='history';render()">View All →</button>
+        </div>
+        ${previousMatches.map(m => buildCard(m, true)).join('')}
+      </div>`;
+  }
+
+  return liveSection + prevSection;
+}
+
 function renderDashboard() {
   const lb      = getLeaderboard();
   const maxPts  = lb[0]?.total || 1;
@@ -2966,17 +3253,58 @@ function renderDashboard() {
     <div class="stat-label">${s.label}</div>
   </div>`).join('');
 
-  const standingsRows = lb.length
-    ? lb.map((p, i) => {
-        const barW = Math.round((p.total / maxPts) * 100);
-        return `<div class="player-row">
-          <span style="width:28px;font-size:${i<3?18:13}px;text-align:center;flex-shrink:0">${medal(p.rank)}</span>
-          <span style="color:var(--text);font-size:13px;min-width:80px;flex-shrink:0">${getName(p)}</span>
-          <div class="mini-bar-wrap"><div class="mini-bar" style="width:${barW}%"></div></div>
-          <span style="color:var(--green);font-weight:700;font-size:15px;min-width:32px;text-align:right">${p.total}</span>
-        </div>`;
-      }).join('')
-    : '<p style="color:var(--muted);text-align:center;font-size:13px">No data yet.</p>';
+  // ── Top 3 Podium (tie-aware) ──────────────────────────────────
+  const podiumHtml = lb.length ? (() => {
+    const rankStyle = {
+      1: { icon:'🥇', size:'26px', color:'#FFD700', bg:'rgba(255,215,0,0.08)'   },
+      2: { icon:'🥈', size:'22px', color:'#C0C0C0', bg:'rgba(192,192,192,0.06)' },
+      3: { icon:'🥉', size:'20px', color:'#CD7F32', bg:'rgba(205,127,50,0.06)'  },
+    };
+    // Collect players at rank 1, 2, 3 — max 3 shown even with ties
+    const slots = lb.filter(p => p.rank <= 3).slice(0, 3);
+    const cards = slots.map(p => {
+      const { icon, size, color, bg } = rankStyle[p.rank] || rankStyle[3];
+      return `<div style="flex:1;min-width:90px;background:${bg};border:1px solid ${color}22;padding:14px 10px;text-align:center">
+        <div style="font-size:${size};margin-bottom:4px">${icon}</div>
+        <div style="font-family:var(--display);font-size:16px;letter-spacing:0.05em;color:var(--text);margin-bottom:2px;word-break:break-word">${getName(p)}</div>
+        <div style="font-size:20px;font-weight:700;color:${color};font-family:var(--mono)">${p.total}</div>
+        <div style="font-size:10px;color:var(--muted);font-family:var(--mono)">PTS</div>
+      </div>`;
+    }).join('');
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-title">🏆 Standings</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${cards}</div>
+    </div>`;
+  })() : '';
+
+  // ── Next Match card ───────────────────────────────────────────
+  const nextMatchCard = (() => {
+    const now2 = Date.now();
+    const upcoming = Object.values(ROUNDS)
+      .filter(r => r.special !== 'pretournament')
+      .flatMap(r => r.matches.map(m => ({ round: r, match: m, kickoff: getKickoff(m.id, m.kickoff) })))
+      .filter(({ kickoff }) => kickoff && new Date(kickoff).getTime() > now2)
+      .sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime())[0];
+
+    if (!upcoming) return `<div class="highlight-card"><div class="highlight-label">⏱️ Next Match</div><div style="color:var(--muted);font-size:12px">No upcoming matches</div></div>`;
+    const ko = new Date(upcoming.kickoff);
+    const diff = ko.getTime() - now2;
+    const totalMins = Math.floor(diff / 60000);
+    const hrs = Math.floor(totalMins / 60), mins = totalMins % 60;
+    const days = Math.floor(hrs / 24);
+    const countdown = days >= 1 ? `in ${days}d ${hrs%24}h` : hrs >= 1 ? `in ${hrs}h ${mins}m` : `in ${mins}m`;
+    const koStr = ko.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    const home = getBracketTeam(upcoming.match.id,'home',upcoming.match.home);
+    const away = getBracketTeam(upcoming.match.id,'away',upcoming.match.away);
+    return `<div class="highlight-card">
+      <div class="highlight-label">⏱️ Next Match</div>
+      <div style="text-align:center;padding:4px 0">
+        <div style="font-size:13px;color:var(--text);margin-bottom:6px;font-family:var(--display);letter-spacing:0.04em">${F(home)} ${home} vs ${F(away)} ${away}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--gold);font-family:var(--mono);margin-bottom:2px">${countdown}</div>
+        <div style="font-size:10px;color:var(--muted);font-family:var(--mono)">${koStr}</div>
+      </div>
+    </div>`;
+  })();
 
   const hlCard = (icon, title, player, stat) => `<div class="highlight-card">
     <div class="highlight-label">${icon} ${title}</div>
@@ -2985,11 +3313,19 @@ function renderDashboard() {
       : `<div style="color:var(--muted);font-size:12px">No data yet</div>`}
   </div>`;
 
+  // ── Points by Round (includes PT if any PT results exist) ─────
+  const ptHasResults = Object.keys(S.bonusResults['pt'] || {}).length > 0;
+  const roundsForTable = [
+    ...(ptHasResults ? [ROUNDS.pt] : []),
+    ...playedRounds,
+  ];
   let roundsTableHtml = '';
-  if (playedRounds.length > 0) {
-    const headerCells = playedRounds.map(r => `<th>${r.id.toUpperCase()}</th>`).join('');
+  if (roundsForTable.length > 0) {
+    const headerCells = roundsForTable.map(r =>
+      `<th title="${r.label}">${r.id === 'pt' ? 'PRE' : r.id.toUpperCase()}</th>`
+    ).join('');
     const rows = lb.map(p => {
-      const cells = playedRounds.map(r =>
+      const cells = roundsForTable.map(r =>
         `<td style="color:#90caf9">${calcRoundScore(p.id, r.id)}</td>`
       ).join('');
       return `<tr>
@@ -3010,13 +3346,13 @@ function renderDashboard() {
     </div>`;
   }
 
+  const liveSection = renderLiveMatches();
+
   return `
     <div class="page-title">Dashboard</div>
     <div class="stat-grid">${statsCards}</div>
-    <div class="card">
-      <div class="card-title">🏆 Overall Standings</div>
-      ${standingsRows}
-    </div>
+    ${liveSection}
+    ${podiumHtml}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       ${hlCard('⚡', 'Round Leader', roundLeader,
           lastRound ? `${roundLeaderPts} pts in ${lastRound.label.replace('Group Stage – ','')}` : '')}
@@ -3024,13 +3360,7 @@ function renderDashboard() {
           mostCorrect ? `${mostCorrectN} correct picks` : '')}
       ${hlCard('🔮', 'Exact Score King', exactKing,
           exactKing ? `${exactKingN} exact scores` : '')}
-      <div class="highlight-card">
-        <div class="highlight-label">💰 Pool</div>
-        <div style="text-align:center;padding:8px 0">
-          <div style="color:var(--gold);font-size:28px;font-weight:700">${S.profiles.length}</div>
-          <div style="color:var(--muted);font-size:12px">players registered</div>
-        </div>
-      </div>
+      ${nextMatchCard}
     </div>
     ${roundsTableHtml}`;
 }
@@ -3413,6 +3743,7 @@ function render() {
       case 'bracket':     content = renderBracket(); break;
       case 'leaderboard': content = renderLeaderboard(); break;
       case 'results':     content = renderResults(); break;
+      case 'history':     content = renderHistory(); break;
       case 'admin':       content = renderAdmin(); break;
       case 'rules':       content = renderRules(); break;
     }
