@@ -3252,21 +3252,22 @@ function renderLiveMatches() {
           const awayTeam2 = getBracketTeam(match.id,'away',match.away);
           const confidenceBar = totalPickers > 0 ? (() => {
             const teams = [homeTeam2, ...(!round.knockout?['Draw']:[]), awayTeam2];
-            const bars = teams.map(t => {
-              const cnt  = pickCounts[t] || 0;
-              const pct  = Math.round(cnt / totalPickers * 100);
-              const col  = t === homeTeam2 ? '#90caf9' : t === awayTeam2 ? '#ef9a9a' : '#eeeeee';
-              return pct > 0 ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-                <span style="font-size:10px;color:var(--muted);font-family:var(--mono);width:90px;flex-shrink:0;text-align:right">${F(t)} ${t}</span>
-                <div style="flex:1;background:rgba(255,255,255,0.06);height:8px;position:relative">
-                  <div style="width:${pct}%;height:100%;background:${col};opacity:0.7"></div>
-                </div>
-                <span style="font-size:10px;font-family:var(--mono);color:${col};width:34px;flex-shrink:0">${pct}%</span>
-              </div>` : '';
-            }).join('');
+            const cols  = { [homeTeam2]:'#90caf9', Draw:'#eeeeee', [awayTeam2]:'#ef9a9a' };
+            const segs  = teams.map(t => {
+              const pct = Math.round((pickCounts[t] || 0) / totalPickers * 100);
+              return { t, pct, col: cols[t] };
+            }).filter(s => s.pct > 0);
+            const segBar = segs.map(s =>
+              `<div style="flex:${s.pct};background:${s.col};height:100%;opacity:0.8"></div>`
+            ).join('');
+            const labels = `
+              <span style="font-size:10px;font-family:var(--mono);color:#90caf9">${F(homeTeam2)} ${homeTeam2} <strong>${Math.round((pickCounts[homeTeam2]||0)/totalPickers*100)}%</strong></span>
+              ${!round.knockout ? `<span style="font-size:10px;font-family:var(--mono);color:var(--muted);margin:0 auto">Draw <strong>${Math.round((pickCounts['Draw']||0)/totalPickers*100)}%</strong></span>` : ''}
+              <span style="font-size:10px;font-family:var(--mono);color:#ef9a9a;margin-left:auto">${F(awayTeam2)} ${awayTeam2} <strong>${Math.round((pickCounts[awayTeam2]||0)/totalPickers*100)}%</strong></span>`;
             return `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border2)">
               <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.08em;margin-bottom:6px">PICK SPLIT (${totalPickers} picks)</div>
-              ${bars}
+              <div style="display:flex;width:100%;height:10px;border-radius:0;overflow:hidden;gap:2px;background:rgba(255,255,255,0.06)">${segBar}</div>
+              <div style="display:flex;align-items:center;margin-top:5px">${labels}</div>
             </div>`;
           })() : '';
 
