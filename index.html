@@ -1281,6 +1281,17 @@ function renderAuth() {
           <button class="btn btn-gold" id="a-submit" style="width:100%;margin-top:4px">Set New Password →</button>
         ` : `
           <div class="auth-sub" style="margin-bottom:16px">${isLogin ? 'Sign in to make your picks' : 'Create your account'}</div>
+          ${!isLogin && S.registrationCutoff ? (() => {
+            const closed = Date.now() > new Date(S.registrationCutoff).getTime();
+            const dateStr = new Date(S.registrationCutoff).toLocaleString(undefined, { dateStyle:'medium', timeStyle:'short' });
+            return closed
+              ? `<div style="background:rgba(239,154,154,0.12);border:1px solid rgba(239,154,154,0.35);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#ef9a9a;font-family:var(--mono)">
+                  🔴 Registration closed on ${dateStr}
+                </div>`
+              : `<div style="background:rgba(255,183,77,0.1);border:1px solid rgba(255,183,77,0.3);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#ffb74d;font-family:var(--mono)">
+                  ⏰ Registration closes ${dateStr}
+                </div>`;
+          })() : ''}
           ${!isLogin ? `
             <div class="field"><label class="label">Display name</label>
               <input class="input" id="a-name" placeholder="e.g. Alex" autocomplete="off"></div>` : ''}
@@ -1566,6 +1577,17 @@ function renderShell(content) {
             ` : ''}
           </div>
         </div>
+        ${!S.profile?.is_admin ? `
+        <div style="margin-bottom:12px">
+          <p class="sidebar-section-label" style="margin-bottom:6px">Display Name</p>
+          <div style="display:flex;gap:6px">
+            <input class="input" id="sidebar-name-input" type="text"
+              value="${dispName}" placeholder="Your name"
+              style="flex:1;padding:7px 10px;font-size:12px;font-family:var(--mono)">
+            <button class="btn btn-gold btn-sm" id="sidebar-name-save">Save</button>
+          </div>
+          <div id="sidebar-name-status" style="font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:4px"></div>
+        </div>` : ''}
         <button class="sidebar-nav-btn" id="sidebar-signout">Sign Out</button>
       </div>
     </div>
@@ -1624,6 +1646,28 @@ function renderShell(content) {
   document.getElementById('signout-btn').onclick = doSignOut;
   document.getElementById('sidebar-signout').onclick = doSignOut;
   document.getElementById('theme-toggle-btn').onclick = toggleTheme;
+
+  // Display name change
+  const nameSaveBtn = document.getElementById('sidebar-name-save');
+  if (nameSaveBtn) {
+    nameSaveBtn.onclick = async () => {
+      const val = document.getElementById('sidebar-name-input').value.trim();
+      const status = document.getElementById('sidebar-name-status');
+      if (!val) { status.textContent = 'Name cannot be empty.'; status.style.color = '#ef9a9a'; return; }
+      nameSaveBtn.disabled = true;
+      const { error } = await sb.from('profiles').update({ nickname: val }).eq('id', S.user.id);
+      nameSaveBtn.disabled = false;
+      if (error) { status.textContent = 'Save failed: ' + error.message; status.style.color = '#ef9a9a'; }
+      else {
+        S.profile.nickname = val;
+        // Update local profiles list too so leaderboard reflects immediately
+        const p = S.profiles.find(p => p.id === S.user.id);
+        if (p) p.nickname = val;
+        status.textContent = '✓ Name updated';
+        status.style.color = '#66bb6a';
+      }
+    };
+  }
 }
 
 function openSidebar() {
