@@ -966,9 +966,9 @@ async function loadAllData() {
     }
   }
 
-  // registration cutoff (app_config)
-  const { data: regCfg } = await sb.from('app_config').select('value').eq('key','registration_cutoff').single();
-  S.registrationCutoff = regCfg?.value || null;
+  // registration cutoff (stored in round_settings with special round_id '__config__')
+  const { data: regCfg } = await sb.from('round_settings').select('deadline').eq('round_id','__config__').single();
+  S.registrationCutoff = regCfg?.deadline || null;
 }
 
 function upsertPick(rid, mid, winner, sh, sa) {
@@ -4134,7 +4134,7 @@ function attachEvents() {
       const status = document.getElementById('reg-cutoff-status');
       if (!val) { status.textContent = 'Enter a date first.'; status.style.color = '#ef9a9a'; return; }
       const iso = new Date(val).toISOString();
-      const { error } = await sb.from('app_config').upsert({ key:'registration_cutoff', value: iso }, { onConflict: 'key' });
+      const { error } = await sb.from('round_settings').upsert({ round_id:'__config__', deadline: iso, locked: false }, { onConflict: 'round_id' });
       if (error) { status.textContent = 'Save failed: ' + error.message; status.style.color = '#ef9a9a'; }
       else { S.registrationCutoff = iso; status.textContent = '✓ Saved'; status.style.color = '#66bb6a'; render(); }
     };
@@ -4142,7 +4142,7 @@ function attachEvents() {
   if (regCutoffClear) {
     regCutoffClear.onclick = async () => {
       const status = document.getElementById('reg-cutoff-status');
-      const { error } = await sb.from('app_config').delete().eq('key','registration_cutoff');
+      const { error } = await sb.from('round_settings').delete().eq('round_id','__config__');
       if (error) { status.textContent = 'Clear failed: ' + error.message; status.style.color = '#ef9a9a'; }
       else { S.registrationCutoff = null; status.textContent = '✓ Cleared'; status.style.color = '#66bb6a'; render(); }
     };
@@ -4689,8 +4689,8 @@ async function init() {
     await loadAllData();
   } else {
     // Still fetch registration cutoff so the signup form can enforce it
-    const { data: regCfg } = await sb.from('app_config').select('value').eq('key','registration_cutoff').single();
-    S.registrationCutoff = regCfg?.value || null;
+    const { data: regCfg } = await sb.from('round_settings').select('deadline').eq('round_id','__config__').single();
+    S.registrationCutoff = regCfg?.deadline || null;
   }
   render();
 
