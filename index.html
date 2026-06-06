@@ -661,6 +661,7 @@ const S = {
   manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
   prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
   colorScheme: 'gold', // localStorage 'wc26:colorScheme'
+  registrationCutoff: null, // ISO date string — set by admin, stored in app_config
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -964,6 +965,10 @@ async function loadAllData() {
       } catch(e) {}
     }
   }
+
+  // registration cutoff (app_config)
+  const { data: regCfg } = await sb.from('app_config').select('value').eq('key','registration_cutoff').single();
+  S.registrationCutoff = regCfg?.value || null;
 }
 
 function upsertPick(rid, mid, winner, sh, sa) {
@@ -1392,6 +1397,12 @@ async function doAuth() {
   } else {
     const name = document.getElementById('a-name').value.trim();
     if (!name) { clearTimeout(authTimeout); showMsg(msgEl, 'Please enter a display name.', 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
+    // Check registration cutoff
+    if (S.registrationCutoff && Date.now() > new Date(S.registrationCutoff).getTime()) {
+      clearTimeout(authTimeout);
+      showMsg(msgEl, 'Registration is now closed.', 'err');
+      btn.disabled = false; btn.textContent = 'Create Account →'; return;
+    }
     const { data, error } = await sb.auth.signUp({ email, password: pw });
     clearTimeout(authTimeout);
     if (error) { showMsg(msgEl, error.message, 'err'); btn.disabled = false; btn.textContent = 'Create Account →'; return; }
@@ -2809,7 +2820,23 @@ function renderAdmin() {
         <button class="btn btn-sm btn-danger" data-prize-delete="${i}" style="padding:6px 10px;flex-shrink:0">✕</button>
       </div>`).join('');
 
+    const cutoffVal = S.registrationCutoff ? S.registrationCutoff.slice(0,16) : '';
     tabContent = `
+      <div class="card" style="margin-bottom:16px;border-color:rgba(255,183,77,0.25)">
+        <div class="card-title">🔒 Registration Cutoff</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+          After this date &amp; time, new accounts cannot be created. Leave blank to allow registration at any time.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="reg-cutoff-input" type="datetime-local" value="${cutoffVal}"
+            style="padding:7px 10px;font-size:13px;font-family:var(--mono)">
+          <button class="btn btn-gold btn-sm" id="reg-cutoff-save">Save</button>
+          <button class="btn btn-outline btn-sm" id="reg-cutoff-clear">Clear</button>
+          <span id="reg-cutoff-status" style="font-size:11px;color:var(--muted);font-family:var(--mono)"></span>
+        </div>
+        ${S.registrationCutoff ? `<p style="font-size:11px;color:${Date.now()>new Date(S.registrationCutoff).getTime()?'#ef9a9a':'#66bb6a'};font-family:var(--mono);margin-top:8px">
+          ${Date.now()>new Date(S.registrationCutoff).getTime()?'🔴 Registration is currently CLOSED':'🟢 Registration is currently OPEN'} — cutoff: ${new Date(S.registrationCutoff).toLocaleString()}</p>` : '<p style="font-size:11px;color:#66bb6a;font-family:var(--mono);margin-top:8px">🟢 Registration is currently OPEN (no cutoff set)</p>'}
+      </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">🏆 Prize Configuration</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
@@ -4098,6 +4125,29 @@ function attachEvents() {
     };
   }
 
+  // Registration cutoff (admin Players tab)
+  const regCutoffSave  = document.getElementById('reg-cutoff-save');
+  const regCutoffClear = document.getElementById('reg-cutoff-clear');
+  if (regCutoffSave) {
+    regCutoffSave.onclick = async () => {
+      const val = document.getElementById('reg-cutoff-input').value;
+      const status = document.getElementById('reg-cutoff-status');
+      if (!val) { status.textContent = 'Enter a date first.'; status.style.color = '#ef9a9a'; return; }
+      const iso = new Date(val).toISOString();
+      const { error } = await sb.from('app_config').upsert({ key:'registration_cutoff', value: iso }, { onConflict: 'key' });
+      if (error) { status.textContent = 'Save failed: ' + error.message; status.style.color = '#ef9a9a'; }
+      else { S.registrationCutoff = iso; status.textContent = '✓ Saved'; status.style.color = '#66bb6a'; render(); }
+    };
+  }
+  if (regCutoffClear) {
+    regCutoffClear.onclick = async () => {
+      const status = document.getElementById('reg-cutoff-status');
+      const { error } = await sb.from('app_config').delete().eq('key','registration_cutoff');
+      if (error) { status.textContent = 'Clear failed: ' + error.message; status.style.color = '#ef9a9a'; }
+      else { S.registrationCutoff = null; status.textContent = '✓ Cleared'; status.style.color = '#66bb6a'; render(); }
+    };
+  }
+
   // Prize config (admin Players tab)
   const prizeAddBtn  = document.getElementById('prize-add-btn');
   const prizeSaveBtn = document.getElementById('prize-save-btn');
@@ -4637,6 +4687,10 @@ async function init() {
       S.profile = profile;
     }
     await loadAllData();
+  } else {
+    // Still fetch registration cutoff so the signup form can enforce it
+    const { data: regCfg } = await sb.from('app_config').select('value').eq('key','registration_cutoff').single();
+    S.registrationCutoff = regCfg?.value || null;
   }
   render();
 
@@ -4647,14 +4701,15 @@ async function init() {
   sb.auth.onAuthStateChange(async (event, session) => {
     if (_adminLoginInProgress) return;
     if (event === 'SIGNED_IN' && session?.user) {
+      const isNewLogin = !S.user; // only navigate on a genuine new login, not token refresh
       S.user = session.user;
       const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
       if (session.user.email === 'admin@vermanipool.internal') {
         S.profile = { ...(profile || {}), is_admin: true, name: 'Admin', nickname: 'Admin' };
-        S.page = 'admin';
+        if (isNewLogin) S.page = 'admin';
       } else {
         S.profile = profile;
-        S.page = 'dashboard';
+        if (isNewLogin) S.page = 'dashboard';
       }
       await loadAllData();
       render();
