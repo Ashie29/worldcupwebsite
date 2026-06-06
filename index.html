@@ -1196,7 +1196,8 @@ function showPlayerModal(profile) {
             : initials(getName(profile))}
         </div>
         <h2 style="color:#fff;margin:0 0 2px;font-size:20px">${getName(profile)}</h2>
-        ${profile.nickname ? `<p style="color:#666;font-size:12px;margin:0 0 8px">${profile.name}</p>` : ''}
+        ${profile.nickname ? `<p style="color:#666;font-size:12px;margin:0 0 6px">${profile.name}</p>` : ''}
+        ${profile.paid ? `<div style="display:inline-flex;align-items:center;gap:5px;margin-bottom:8px;font-size:11px;color:#1da1f2;font-family:var(--mono)"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#1da1f2;color:#fff;font-size:10px;font-weight:700">✓</span> Verified</div>` : ''}
         <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.07);padding:5px 14px;border-radius:20px">
           <span style="font-size:${rank<=3?20:14}px;color:${rankColor}">${typeof rank==='number'&&rank<=3?['🥇','🥈','🥉'][rank-1]:'#'+rank}</span>
           <span style="color:${rankColor};font-size:13px;font-weight:bold">${typeof rank==='number'&&rank<=3?['Champion','Runner-up','3rd Place'][rank-1]:'Rank '+rank}</span>
@@ -2123,6 +2124,7 @@ function renderLeaderboard() {
             ? `<img src="${p.avatar_url}" class="lb-avatar" alt="">`
             : `<span class="lb-avatar-initials">${(p.nickname||p.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</span>`}
           <span${isMe?' style="color:var(--gold);font-weight:500"':''}>${p.nickname||p.name}${isMe?' <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">(you)</span>':''}</span>
+          ${p.paid ? `<span title="Entry fee paid" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#1da1f2;color:#fff;font-size:9px;font-weight:700;flex-shrink:0;line-height:1">✓</span>` : ''}
           <span class="ach-icons">${achIcons(p)}</span>
         </div>
       </td>
@@ -2899,6 +2901,10 @@ function renderAdmin() {
             style="width:60px;padding:5px 8px;font-size:12px;text-align:center">
           <button class="btn btn-sm btn-gold admin-pts-save" data-uid="${p.id}" style="padding:5px 9px;font-size:11px">✓</button>
         </div>
+        <button class="btn btn-sm ${p.paid ? 'btn-gold' : 'btn-outline'} admin-paid-toggle" data-uid="${p.id}" data-paid="${p.paid ? '1' : '0'}"
+          style="font-size:11px;${p.paid ? '' : 'opacity:0.5'}" title="${p.paid ? 'Mark as unpaid' : 'Mark as paid'}">
+          ${p.paid ? '✅ Paid' : '⬜ Unpaid'}
+        </button>
         <button class="btn btn-sm btn-outline" data-view-profile="${p.id}">Profile</button>
       </div>`;
     }).join('');
@@ -4156,6 +4162,23 @@ function attachEvents() {
       const qid = sel.dataset.qid;
       await upsertBonusResult('pt', qid, sel.value);
       render();
+    };
+  });
+
+  // Admin: toggle paid status
+  document.querySelectorAll('.admin-paid-toggle').forEach(btn => {
+    btn.onclick = async () => {
+      const uid     = btn.dataset.uid;
+      const newPaid = btn.dataset.paid !== '1';
+      btn.disabled  = true; btn.textContent = '…';
+      const { error } = await sb.from('profiles').update({ paid: newPaid }).eq('id', uid);
+      if (!error) {
+        const p = S.profiles.find(p => p.id === uid);
+        if (p) p.paid = newPaid;
+        render();
+      } else {
+        btn.disabled = false; btn.textContent = '✗ Error';
+      }
     };
   });
 
