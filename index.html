@@ -2790,16 +2790,19 @@ function renderHistory() {
   const now = Date.now();
   const LOCK_BEFORE = 3600000;
 
-  const isMatchLocked = (round, match) => {
+  // History only shows matches that have actually kicked off (or manually locked per-match).
+  // Round-level lock is intentionally excluded — admins lock rounds early to manage
+  // bonus questions, but that shouldn't surface unplayed matches in history.
+  const hasMatchStarted = (match) => {
     const ko = getKickoff(match.id, match.kickoff);
     if (!ko) return false;
-    return !!(S.roundSettings[round.id]?.locked || S.manualMatchLocks[match.id] || now >= new Date(ko).getTime() - LOCK_BEFORE);
+    return !!(S.manualMatchLocks[match.id] || now >= new Date(ko).getTime() - LOCK_BEFORE);
   };
 
-  // Build list of all played/locked rounds (non-PT)
+  // Build list of rounds that have at least one match that has actually kicked off
   const roundsWithMatches = Object.values(ROUNDS).filter(r =>
     r.special !== 'pretournament' &&
-    r.matches.some(m => isMatchLocked(r, m))
+    r.matches.some(m => hasMatchStarted(m))
   );
 
   if (!roundsWithMatches.length) {
@@ -2855,7 +2858,7 @@ function renderHistory() {
   };
 
   const roundsHtml = roundsWithMatches.map(round => {
-    const lockedMatches = round.matches.filter(m => isMatchLocked(round, m));
+    const lockedMatches = round.matches.filter(m => hasMatchStarted(m));
     const matchRows = lockedMatches.map(match => {
       const ko = getKickoff(match.id, match.kickoff);
       const koStr = ko ? new Date(ko).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
