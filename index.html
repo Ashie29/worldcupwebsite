@@ -882,11 +882,16 @@ function calcScore(uid) {
       const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
       const correct = S.bonusResults[rid]?.[bq.id];
       if (!ans || !correct || !correct.answer || !ans.answer) continue;
-      if (ans.answer === correct.answer) {
-        const wager = round.knockout ? (Number(ans.wager) || 0) : 0;
-        total += (bq.pts * bMult) + wager;
-      } else if (round.knockout && Number(ans.wager) > 0) {
-        total -= Number(ans.wager);
+      const isOU     = bq.type === 'overunder';
+      const hasWager = bq.wager === true;
+      const stake    = hasWager ? (Number(ans.wager) || 0) : (bq.pts * bMult);
+      if (isOU) {
+        if (ans.answer === 'Abstain') { /* 0 pts */ }
+        else if (ans.answer === correct.answer) total += stake;
+        else total -= stake;
+      } else {
+        if (ans.answer === correct.answer) total += stake;
+        // wrong on normal = 0
       }
     }
   }
@@ -1953,31 +1958,58 @@ function renderPicks() {
   }).join('');
 
   const bonusHtml = bonusQs.map(bq => {
-    const ans   = S.bonusAnswers[uid]?.[rid]?.[bq.id] || {};
-    const bres  = S.bonusResults[rid]?.[bq.id]?.answer || '';
-    const wager = ans.wager || 0;
-    const maxW  = bq.pts * 2;
+    const ans    = S.bonusAnswers[uid]?.[rid]?.[bq.id] || {};
+    const bres   = S.bonusResults[rid]?.[bq.id]?.answer || '';
+    const wager  = Number(ans.wager) || 0;
+    const isOU   = bq.type === 'overunder';
+    const hasWager = bq.wager === true;
+    const displayOpts = isOU ? ['Over','Under','Abstain'] : bq.opts;
 
-    const optsHtml = bq.opts.map(opt => {
+    const ouColors = { Over:'#90caf9', Under:'#ef9a9a', Abstain:'var(--muted)' };
+
+    const optsHtml = displayOpts.map(opt => {
       const isSel = ans.answer === opt;
       let cls = '';
-      if (isSel && bres) cls = bres===opt ? 'correct' : 'wrong';
-      else if (isSel) cls = 'sel';
-      return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${readOnly?'disabled':''}>${opt}</button>`;
+      if (isSel && bres) {
+        if (opt === 'Abstain') cls = 'sel';
+        else cls = bres === opt ? 'correct' : 'wrong';
+      } else if (isSel) cls = 'sel';
+      const ouStyle = isOU ? `style="border-color:${ouColors[opt]};color:${cls?'':''+ouColors[opt]}"` : '';
+      return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${readOnly?'disabled':''} ${ouStyle}>${opt}</button>`;
     }).join('');
 
-    const wagerHtml = round.knockout ? `
-      <div class="wager-row">
-        <span class="wager-hint">💰 Wager:</span>
-        <input class="wager-in" type="number" min="0" max="${maxW}" value="${wager||''}" placeholder="0"
-          data-action="wager" data-rid="${rid}" data-qid="${bq.id}" ${readOnly?'disabled':''}>
-        <span class="wager-hint">max ${maxW} · correct +${bq.pts+(wager||0)} · wrong −${wager||0}</span>
+    // Scoring hint
+    let hint = '';
+    if (bres) {
+      const correct = ans.answer && ans.answer !== 'Abstain' && ans.answer === bres;
+      const wrong   = ans.answer && ans.answer !== 'Abstain' && ans.answer !== bres;
+      const stake   = hasWager ? wager : bq.pts;
+      if (correct) hint = `<span class="pts-badge pts-ok">+${stake} pts ✅</span>`;
+      else if (wrong && isOU) hint = `<span class="pts-badge pts-bad">−${stake} pts ❌</span>`;
+      else if (wrong) hint = `<span class="pts-badge pts-bad">0 pts ❌</span>`;
+      else if (ans.answer === 'Abstain') hint = `<span class="pts-badge" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border2)">0 pts (Abstain)</span>`;
+    }
+
+    // Wager slider
+    const wagerHtml = hasWager ? `
+      <div class="wager-row" style="margin-top:10px;gap:10px">
+        <span class="wager-hint">💰 Stake:</span>
+        <input type="range" min="0" max="10" value="${wager}"
+          data-action="wager-slider" data-rid="${rid}" data-qid="${bq.id}"
+          style="flex:1;accent-color:var(--gold)" ${readOnly?'disabled':''}>
+        <span data-wager-display="${bq.id}" style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--mono);min-width:30px">${wager} pts</span>
+        ${isOU ? `<span class="wager-hint" style="font-size:10px">correct +${wager} · wrong −${wager}</span>` : `<span class="wager-hint" style="font-size:10px">correct +${wager} · wrong 0</span>`}
       </div>` : '';
 
+    const ptsLabel = hasWager
+      ? `<span style="color:var(--muted);font-size:10px">[wager 0–10]</span>`
+      : `<span style="color:var(--gold);font-size:10px">[${bq.pts} pts${isOU ? ' · wrong −'+bq.pts : ''}]</span>`;
+
     return `<div class="bonus-q">
-      <div class="bonus-q-text">${bq.text} <span style="color:var(--gold);font-size:10px">[${bq.pts} pts]</span></div>
+      <div class="bonus-q-text">${bq.text} ${ptsLabel}${isOU ? ` <span style="font-size:10px;color:#90caf9;font-family:var(--mono)">[OVER/UNDER]</span>` : ''}</div>
       <div class="bonus-opts">${optsHtml}</div>
       ${wagerHtml}
+      ${hint}
     </div>`;
   }).join('');
 
@@ -2377,9 +2409,12 @@ function renderAdmin() {
 
       const bonusResultsHtml = getActiveQuestions(rid).map(bq => {
         const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
-        const opts = bq.opts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
+        const resultOpts = bq.type === 'overunder' ? ['Over','Under'] : bq.opts;
+        const opts = resultOpts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
+        const typeTag = bq.type === 'overunder' ? ' <span style="font-size:9px;color:#90caf9;font-family:var(--mono)">[O/U]</span>' : '';
+        const wagerTag = bq.wager ? ' <span style="font-size:9px;color:var(--gold);font-family:var(--mono)">[WAGER]</span>' : '';
         return `<div class="admin-match-row">
-          <span class="admin-match-label" style="font-size:11px">${bq.text}</span>
+          <span class="admin-match-label" style="font-size:11px">${bq.text}${typeTag}${wagerTag}</span>
           <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
             <option value="">– Answer –</option>${opts}
           </select>
@@ -2744,30 +2779,47 @@ function renderAdmin() {
     const isCustom = !!S.customBonusQs[qRid];
 
     // ── Active questions editor ──────────────────────────────────
-    const activeEditorRows = activeQs.map((q, i) => `
+    const activeEditorRows = activeQs.map((q, i) => {
+      const isOU = q.type === 'overunder';
+      const inputStyle = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono)';
+      return `
       <div style="padding:12px 0;border-bottom:1px solid var(--border2)">
         <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px">
           <span style="font-size:11px;color:var(--muted);width:20px;padding-top:10px;flex-shrink:0">${i+1}.</span>
           <textarea rows="2" data-eq-text="${i}" style="flex:1;min-width:180px;background:rgba(255,255,255,0.06);
-            border:1.5px solid rgba(255,255,255,0.12);border-radius:8px;color:var(--text);
+            border:1.5px solid rgba(255,255,255,0.12);color:var(--text);
             padding:8px 10px;font-size:12px;font-family:Arial,sans-serif;resize:vertical">${q.text.replace(/</g,'&lt;')}</textarea>
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
             <label style="font-size:10px;color:var(--muted)">Pts</label>
             <input type="number" min="1" max="20" data-eq-pts="${i}" value="${q.pts}"
               style="width:52px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);
-              border-radius:8px;color:var(--gold);text-align:center;font-size:14px;font-weight:700;
-              padding:6px 4px;font-family:Arial,sans-serif">
+              color:var(--gold);text-align:center;font-size:14px;font-weight:700;
+              padding:6px 4px;font-family:var(--mono)">
           </div>
         </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-left:28px;margin-bottom:6px">
+          <span style="font-size:10px;color:var(--muted);flex-shrink:0">Type:</span>
+          <select data-eq-type="${i}" style="${inputStyle}">
+            <option value="normal" ${!isOU?'selected':''}>Normal</option>
+            <option value="overunder" ${isOU?'selected':''}>Over / Under</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;user-select:none">
+            <input type="checkbox" data-eq-wager="${i}" ${q.wager?'checked':''}>
+            Wager (slider 0–10)
+          </label>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:28px">
-          <span style="font-size:10px;color:var(--muted);flex-shrink:0">Options (comma-separated):</span>
-          <input data-eq-opts="${i}" value="${q.opts.join(', ').replace(/"/g,'&quot;')}"
-            style="flex:1;min-width:140px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
-            border-radius:6px;color:var(--text);padding:5px 8px;font-size:11px;font-family:Arial,sans-serif">
+          ${isOU
+            ? `<span style="font-size:10px;color:var(--muted);font-style:italic">Options auto-set: Over / Under / Abstain</span>`
+            : `<span style="font-size:10px;color:var(--muted);flex-shrink:0">Options (comma-separated):</span>
+               <input data-eq-opts="${i}" value="${q.opts.join(', ').replace(/"/g,'&quot;')}"
+                 style="flex:1;min-width:140px;${inputStyle}">`
+          }
           <button class="btn btn-gold btn-sm" data-save-q="${i}" data-rid="${qRid}">Save</button>
           <button class="btn btn-danger btn-sm" data-del-q="${i}" data-rid="${qRid}">Delete</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     // ── Question bank ────────────────────────────────────────────
     const catFilter  = S.adminQFilter || 'All';
@@ -3106,11 +3158,15 @@ function calcRoundScore(uid, rid) {
     const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
     const correct = S.bonusResults[rid]?.[bq.id];
     if (!ans || !correct || !correct.answer || !ans.answer) continue;
-    if (ans.answer === correct.answer) {
-      const wager = round.knockout ? (Number(ans.wager) || 0) : 0;
-      pts += (bq.pts * bMult) + wager;
-    } else if (round.knockout && Number(ans.wager) > 0) {
-      pts -= Number(ans.wager);
+    const isOU     = bq.type === 'overunder';
+    const hasWager = bq.wager === true;
+    const stake    = hasWager ? (Number(ans.wager) || 0) : (bq.pts * bMult);
+    if (isOU) {
+      if (ans.answer === 'Abstain') { /* 0 pts */ }
+      else if (ans.answer === correct.answer) pts += stake;
+      else pts -= stake;
+    } else {
+      if (ans.answer === correct.answer) pts += stake;
     }
   }
   return pts;
@@ -4284,7 +4340,7 @@ function attachEvents() {
     };
   });
 
-  // Wager inputs (save on blur)
+  // Wager inputs (save on blur — legacy number inputs)
   document.querySelectorAll('[data-action="wager"]').forEach(inp => {
     inp.onblur = () => {
       const { rid, qid } = inp.dataset;
@@ -4294,6 +4350,27 @@ function attachEvents() {
       const cur  = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
       upsertBonusAnswer(rid, qid, cur.answer||'', val);
       render();
+    };
+  });
+
+  // Wager sliders (save on input, update display live)
+  document.querySelectorAll('[data-action="wager-slider"]').forEach(slider => {
+    slider.oninput = () => {
+      const { rid, qid } = slider.dataset;
+      const val = parseInt(slider.value) || 0;
+      const display = document.querySelector(`[data-wager-display="${qid}"]`);
+      if (display) display.textContent = val + ' pts';
+      // Update sibling hint text live
+      const row = slider.closest('.wager-row');
+      if (row) {
+        const hint = row.querySelector('.wager-hint:last-child');
+        if (hint) {
+          const isOU = hint.textContent.includes('wrong −');
+          hint.textContent = isOU ? `correct +${val} · wrong −${val}` : `correct +${val} · wrong 0`;
+        }
+      }
+      const cur = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
+      upsertBonusAnswer(rid, qid, cur.answer||'', val);
     };
   });
 
@@ -4521,14 +4598,23 @@ function attachEvents() {
       const i   = Number(btn.dataset.saveQ);
       const rid = btn.dataset.rid;
       const qs  = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
-      const textEl = document.querySelector(`[data-eq-text="${i}"]`);
-      const ptsEl  = document.querySelector(`[data-eq-pts="${i}"]`);
-      const optsEl = document.querySelector(`[data-eq-opts="${i}"]`);
+      const textEl  = document.querySelector(`[data-eq-text="${i}"]`);
+      const ptsEl   = document.querySelector(`[data-eq-pts="${i}"]`);
+      const optsEl  = document.querySelector(`[data-eq-opts="${i}"]`);
+      const typeEl  = document.querySelector(`[data-eq-type="${i}"]`);
+      const wagerEl = document.querySelector(`[data-eq-wager="${i}"]`);
+      const qType   = typeEl?.value || qs[i].type || 'normal';
+      const qWager  = wagerEl?.checked || false;
+      const qOpts   = qType === 'overunder'
+        ? ['Over','Under','Abstain']
+        : (optsEl?.value.split(',').map(o => o.trim()).filter(Boolean) || qs[i].opts);
       qs[i] = {
         ...qs[i],
-        text: textEl?.value || qs[i].text,
-        pts:  Number(ptsEl?.value)  || qs[i].pts,
-        opts: optsEl?.value.split(',').map(o => o.trim()).filter(Boolean) || qs[i].opts,
+        text:  textEl?.value || qs[i].text,
+        pts:   Number(ptsEl?.value)  || qs[i].pts,
+        opts:  qOpts,
+        type:  qType,
+        wager: qWager,
       };
       S.customBonusQs[rid] = qs;
       saveCustomQuestions();
@@ -4555,7 +4641,7 @@ function attachEvents() {
     addBlankBtn.onclick = () => {
       const rid = addBlankBtn.dataset.rid;
       const qs  = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
-      qs.push({ id: `custom_${rid}_${Date.now()}`, text: 'New question', pts: 2, opts: ['Yes', 'No'] });
+      qs.push({ id: `custom_${rid}_${Date.now()}`, text: 'New question', pts: 2, opts: ['Yes', 'No'], type: 'normal', wager: false });
       S.customBonusQs[rid] = qs;
       saveCustomQuestions();
       render();
@@ -4582,7 +4668,7 @@ function attachEvents() {
       const bq   = bank[bi];
       if (!bq) return;
       const qs = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
-      qs.push({ id: `bk_${rid}_${Date.now()}`, text: bq.text, pts: bq.pts, opts: [...bq.opts] });
+      qs.push({ id: `bk_${rid}_${Date.now()}`, text: bq.text, pts: bq.pts, opts: [...bq.opts], type: bq.type || 'normal', wager: bq.wager || false });
       S.customBonusQs[rid] = qs;
       saveCustomQuestions();
       S.adminTab = 'questions';
