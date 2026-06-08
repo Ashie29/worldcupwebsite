@@ -662,6 +662,7 @@ const S = {
   prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
   colorScheme: 'gold', // localStorage 'wc26:colorScheme'
   registrationCutoff: null, // ISO date string — set by admin, stored in app_config
+  bonusLockOverrides: {}, // rid → ISO string — admin override for when bonus questions lock (overrides auto 1hr-before-first-match)
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -704,6 +705,10 @@ function saveLockSchedules() {
   localStorage.setItem('wc26:lockSchedules', JSON.stringify(S.lockSchedules));
 }
 
+function saveBonusLockOverrides() {
+  localStorage.setItem('wc26:bonusLockOverrides', JSON.stringify(S.bonusLockOverrides));
+}
+
 function saveBracketTeams() {
   localStorage.setItem('wc26:bracketTeams', JSON.stringify(S.bracketTeams));
 }
@@ -733,6 +738,10 @@ function loadLocalSettings() {
   try {
     const ls = localStorage.getItem('wc26:lockSchedules');
     if (ls) S.lockSchedules = JSON.parse(ls);
+  } catch {}
+  try {
+    const blo = localStorage.getItem('wc26:bonusLockOverrides');
+    if (blo) S.bonusLockOverrides = JSON.parse(blo);
   } catch {}
   try {
     const bt = localStorage.getItem('wc26:bracketTeams');
@@ -1880,7 +1889,8 @@ function renderPicks() {
     .map(k => new Date(k).getTime())
     .sort((a,b) => a - b);
   const firstKickoff   = roundKickoffs[0] || null;
-  const bonusLockAt    = firstKickoff ? firstKickoff - 3600000 : null;
+  const bonusLockOverride = S.bonusLockOverrides[rid];
+  const bonusLockAt    = bonusLockOverride ? new Date(bonusLockOverride).getTime() : (firstKickoff ? firstKickoff - 3600000 : null);
   const bonusAutoLocked = !!(bonusLockAt && Date.now() >= bonusLockAt);
   const bonusLocked    = locked || bonusAutoLocked;
   const bonusRO        = isAdmin || isPinAdmin || bonusLocked;
@@ -1889,9 +1899,10 @@ function renderPicks() {
     if (bonusLocked) return `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--red);border:1px solid rgba(217,79,61,0.4);padding:3px 10px;margin-left:10px">⛔ Bonus Closed</span>`;
     if (bonusLockAt) {
       const diff = bonusLockAt - Date.now();
-      const hrs  = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+      const hrs  = Math.floor((diff % 86400000) / 3600000);
       const mins = Math.floor((diff % 3600000) / 60000);
-      const str  = hrs >= 1 ? `${hrs}h ${mins}m` : `${mins}m`;
+      const str  = days >= 1 ? `${days}d ${hrs}h ${mins}m` : (hrs >= 1 ? `${hrs}h ${mins}m` : `${mins}m`);
       return `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:#ffb74d;border:1px solid rgba(255,183,77,0.35);padding:3px 10px;margin-left:10px">⏰ Bonus closes in ${str}</span>`;
     }
     return '';
@@ -2512,6 +2523,25 @@ function renderAdmin() {
               ${isOverridden ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px" data-action="reset-kickoff" data-mid="${m.id}">Reset</button>` : ''}
             </div>`;
           }).join('')}
+        </div>
+        <div class="card" style="border-color:rgba(232,213,163,0.2)">
+          <div class="card-title">⭐ Bonus Questions Lock Override</div>
+          <p style="color:var(--muted);font-size:11px;margin-bottom:14px">
+            By default, bonus questions for this round auto-lock 1 hour before the first match kicks off.
+            Set a custom date/time below to override that for this round specifically.
+          </p>
+          ${(() => {
+            const override = S.bonusLockOverrides[rid];
+            const localVal = override ? toDatetimeLocal(override) : '';
+            const localDisplay = override ? new Date(override).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+            return `<div class="admin-match-row" style="flex-wrap:wrap;gap:10px;align-items:center">
+              <span class="admin-match-label">${roundLabel(round)}${override ? ' <span style="color:#ff7043;font-size:9px;font-family:var(--mono)">OVERRIDDEN</span>' : ''}</span>
+              <input type="datetime-local" class="admin-score" style="width:190px;font-family:var(--mono);font-size:11px"
+                value="${localVal}" data-action="set-bonus-lock" data-rid="${rid}">
+              <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">${override ? localDisplay : 'Using auto 1hr-before-first-match'}</span>
+              ${override ? `<button class="btn btn-sm btn-outline" style="font-size:9px;padding:3px 8px" data-action="reset-bonus-lock" data-rid="${rid}">Reset to auto</button>` : ''}
+            </div>`;
+          })()}
         </div>
         <div class="card">
           <div class="card-title">${roundLabel(round)} — Match Results</div>
@@ -4518,6 +4548,29 @@ function attachEvents() {
     btn.onclick = () => {
       delete S.kickoffOverrides[btn.dataset.mid];
       saveKickoffOverrides();
+      render();
+    };
+  });
+
+  // Admin: override bonus questions lock time per round
+  document.querySelectorAll('[data-action="set-bonus-lock"]').forEach(inp => {
+    inp.onchange = () => {
+      const rid = inp.dataset.rid;
+      const val = inp.value;
+      if (val) {
+        S.bonusLockOverrides[rid] = new Date(val).toISOString();
+      } else {
+        delete S.bonusLockOverrides[rid];
+      }
+      saveBonusLockOverrides();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-action="reset-bonus-lock"]').forEach(btn => {
+    btn.onclick = () => {
+      delete S.bonusLockOverrides[btn.dataset.rid];
+      saveBonusLockOverrides();
       render();
     };
   });
