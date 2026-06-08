@@ -1872,6 +1872,30 @@ function renderPicks() {
 
   const { match: mMult, bonus: bMult } = getMultipliers(rid);
   const bonusQs = getActiveQuestions(rid);
+
+  // Bonus questions auto-lock 1 hour before the round's first match kickoff
+  const roundKickoffs = round.matches
+    .map(m => getKickoff(m.id, m.kickoff))
+    .filter(Boolean)
+    .map(k => new Date(k).getTime())
+    .sort((a,b) => a - b);
+  const firstKickoff   = roundKickoffs[0] || null;
+  const bonusLockAt    = firstKickoff ? firstKickoff - 3600000 : null;
+  const bonusAutoLocked = !!(bonusLockAt && Date.now() >= bonusLockAt);
+  const bonusLocked    = locked || bonusAutoLocked;
+  const bonusRO        = isAdmin || isPinAdmin || bonusLocked;
+  const bonusLockBadge = (() => {
+    if (isAdmin || isPinAdmin) return '';
+    if (bonusLocked) return `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--red);border:1px solid rgba(217,79,61,0.4);padding:3px 10px;margin-left:10px">⛔ Bonus Closed</span>`;
+    if (bonusLockAt) {
+      const diff = bonusLockAt - Date.now();
+      const hrs  = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const str  = hrs >= 1 ? `${hrs}h ${mins}m` : `${mins}m`;
+      return `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:#ffb74d;border:1px solid rgba(255,183,77,0.35);padding:3px 10px;margin-left:10px">⏰ Bonus closes in ${str}</span>`;
+    }
+    return '';
+  })();
   const matchMaxPts = round.matches.length * 3 * mMult;
   const bonusMaxPts = bonusQs.reduce((sum, q) => sum + q.pts * bMult, 0);
   const totalMax = matchMaxPts + bonusMaxPts;
@@ -1976,7 +2000,7 @@ function renderPicks() {
         else cls = bres === opt ? 'correct' : 'wrong';
       } else if (isSel) cls = 'sel';
       const ouStyle = isOU ? `style="border-color:${ouColors[opt]};color:${cls?'':''+ouColors[opt]}"` : '';
-      return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${readOnly?'disabled':''} ${ouStyle}>${opt}</button>`;
+      return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${bonusRO?'disabled':''} ${ouStyle}>${opt}</button>`;
     }).join('');
 
     // Scoring hint
@@ -1997,7 +2021,7 @@ function renderPicks() {
         <span class="wager-hint">💰 Stake:</span>
         <input type="range" min="0" max="10" value="${wager}"
           data-action="wager-slider" data-rid="${rid}" data-qid="${bq.id}"
-          style="flex:1;accent-color:var(--gold)" ${readOnly?'disabled':''}>
+          style="flex:1;accent-color:var(--gold)" ${bonusRO?'disabled':''}>
         <span data-wager-display="${bq.id}" style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--mono);min-width:30px">${wager} pts</span>
         ${isOU ? `<span class="wager-hint" style="font-size:10px">correct +${wager} · wrong −${wager}</span>` : `<span class="wager-hint" style="font-size:10px">correct +${wager} · wrong 0</span>`}
       </div>` : '';
@@ -2029,7 +2053,7 @@ function renderPicks() {
       ${matchesHtml}
     </div>
     ${bonusQs.length ? `<div class="bonus-section">
-      <div class="bonus-title">⭐ Bonus Questions</div>
+      <div class="bonus-title" style="display:flex;align-items:center;flex-wrap:wrap">⭐ Bonus Questions ${bonusLockBadge}</div>
       ${bonusHtml}
     </div>` : ''}
     ${!isAdmin && !isPinAdmin ? `
