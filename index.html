@@ -662,6 +662,7 @@ const S = {
   prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
   colorScheme: 'gold', // localStorage 'wc26:colorScheme'
   registrationCutoff: null, // ISO date string — set by admin, stored in app_config
+  noticeBoard: '',          // plain-text notice shown on dashboard, editable by admin
   bonusLockOverrides: {}, // rid → ISO string — admin override for when bonus questions lock (overrides auto 1hr-before-first-match)
 };
 
@@ -983,6 +984,10 @@ async function loadAllData() {
   // registration cutoff (stored in round_settings with special round_id '__config__')
   const { data: regCfg } = await sb.from('round_settings').select('deadline').eq('round_id','__config__').single();
   S.registrationCutoff = regCfg?.deadline || null;
+
+  // notice board (stored in round_settings with special round_id '__notice__')
+  const { data: noticeCfg } = await sb.from('round_settings').select('notice').eq('round_id','__notice__').single();
+  S.noticeBoard = noticeCfg?.notice || '';
 }
 
 function upsertPick(rid, mid, winner, sh, sa) {
@@ -3666,8 +3671,38 @@ function renderDashboard() {
 
   const liveSection = renderLiveMatches();
 
+  const isAdminUser = S.isAdmin || S.isPinAdmin;
+  const noticeBoardHtml = (() => {
+    const txt = S.noticeBoard || '';
+    if (!txt && !isAdminUser) return '';
+    if (isAdminUser) {
+      // Admin sees editable card
+      return `<div class="card" style="border-color:rgba(232,213,163,0.35);margin-bottom:16px" id="notice-board-card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span class="card-title" style="margin:0">📋 Notice Board</span>
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--gold);border:1px solid rgba(232,213,163,0.35);padding:2px 7px">ADMIN</span>
+        </div>
+        <textarea id="notice-board-input" rows="3" placeholder="Write a notice for all players… (leave empty to hide)"
+          style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border2);color:var(--text);
+                 font-size:13px;padding:10px 12px;resize:vertical;font-family:inherit;border-radius:0;outline:none"
+        >${txt.replace(/</g,'&lt;')}</textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <button class="btn btn-sm btn-gold" data-action="save-notice">Save Notice</button>
+          <button class="btn btn-sm btn-outline" data-action="clear-notice" style="opacity:0.7">Clear</button>
+          <span id="notice-save-status" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+      </div>`;
+    }
+    // Regular players see a read-only notice
+    return `<div class="card" style="border-color:rgba(232,213,163,0.35);margin-bottom:16px">
+      <div class="card-title">📋 Notice Board</div>
+      <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text)">${txt.replace(/</g,'&lt;')}</div>
+    </div>`;
+  })();
+
   return `
     <div class="page-title">Dashboard</div>
+    ${noticeBoardHtml}
     <div class="stat-grid">${statsCards}</div>
     ${liveSection}
     ${podiumHtml}
@@ -4322,6 +4357,30 @@ function attachEvents() {
       const { error } = await sb.from('round_settings').delete().eq('round_id','__config__');
       if (error) { status.textContent = 'Clear failed: ' + error.message; status.style.color = '#ef9a9a'; }
       else { S.registrationCutoff = null; status.textContent = '✓ Cleared'; status.style.color = '#66bb6a'; render(); }
+    };
+  }
+
+  // Notice board (dashboard — admin only)
+  const saveNoticeBtn  = document.querySelector('[data-action="save-notice"]');
+  const clearNoticeBtn = document.querySelector('[data-action="clear-notice"]');
+  if (saveNoticeBtn) {
+    saveNoticeBtn.onclick = async () => {
+      const txt    = (document.getElementById('notice-board-input')?.value || '').trim();
+      const status = document.getElementById('notice-save-status');
+      const { error } = await sb.from('round_settings').upsert(
+        { round_id: '__notice__', notice: txt, locked: false },
+        { onConflict: 'round_id' }
+      );
+      if (error) { status.textContent = 'Save failed: ' + error.message; status.style.color = '#ef9a9a'; }
+      else { S.noticeBoard = txt; status.textContent = '✓ Saved'; status.style.color = '#66bb6a'; }
+    };
+  }
+  if (clearNoticeBtn) {
+    clearNoticeBtn.onclick = async () => {
+      const status = document.getElementById('notice-save-status');
+      const { error } = await sb.from('round_settings').delete().eq('round_id','__notice__');
+      if (error) { status.textContent = 'Clear failed: ' + error.message; status.style.color = '#ef9a9a'; }
+      else { S.noticeBoard = ''; status.textContent = '✓ Cleared'; status.style.color = '#66bb6a'; render(); }
     };
   }
 
