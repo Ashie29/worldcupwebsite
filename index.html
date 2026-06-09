@@ -3671,7 +3671,7 @@ function renderDashboard() {
 
   const liveSection = renderLiveMatches();
 
-  const isAdminUser = S.isAdmin || S.isPinAdmin;
+  const isAdminUser = !!S.profile?.is_admin;
   const noticeBoardHtml = (() => {
     const txt = S.noticeBoard || '';
     if (!txt && !isAdminUser) return '';
