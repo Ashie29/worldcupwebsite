@@ -4403,7 +4403,9 @@ function attachEvents() {
       const sh = side==='h' ? inp.value : pick.score_home || '';
       const sa = side==='a' ? inp.value : pick.score_away || '';
       upsertPick(rid, mid, pick.winner||'', sh, sa);
-      render();
+      // Note: intentionally no render() here — calling render() on blur destroys the DOM
+      // mid-click on desktop browsers, causing team button clicks to be swallowed.
+      // upsertPick already updates S.picks in local state immediately.
     };
   });
 
