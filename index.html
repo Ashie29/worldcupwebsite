@@ -2274,12 +2274,14 @@ function renderLeaderboard() {
     <div class="page-title">🏆 Leaderboard</div>
     ${myCard}
     <div class="card">
-      <table class="lb-table">
-        <thead><tr>
-          <th>Rank</th><th title="Movement since last round">+/−</th><th>Player</th><th>Correct</th><th>Exact</th><th></th><th>Pts</th><th></th>
-        </tr></thead>
-        <tbody>${rows||'<tr><td colspan="7" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
-      </table>
+      <div style="overflow-x:auto">
+        <table class="lb-table">
+          <thead><tr>
+            <th>Rank</th><th title="Movement since last round">+/−</th><th>Player</th><th>Correct</th><th>Exact</th><th></th><th>Pts</th><th></th>
+          </tr></thead>
+          <tbody>${rows||'<tr><td colspan="7" style="color:var(--muted);padding:20px;text-align:center">No players yet.</td></tr>'}</tbody>
+        </table>
+      </div>
       <p style="font-size:10px;color:var(--faint);margin-top:12px">Tiebreaker: most correct picks → most exact scores · Click a player to view profile</p>
     </div>`;
 }
@@ -2796,8 +2798,8 @@ function renderAdmin() {
               const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
               return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
                 border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
-                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
-                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer||'—'} ${icon}</span>
+                <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
+                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'};flex-shrink:0">${ans.answer||'—'} ${icon}</span>
               </div>`;
             }).join('');
             picksContent = `
@@ -2831,8 +2833,8 @@ function renderAdmin() {
               const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
               return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
                 border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
-                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${bq.text}</span>
-                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'}">${ans.answer || '—'} ${icon}</span>
+                <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
+                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'};flex-shrink:0">${ans.answer || '—'} ${icon}</span>
               </div>`;
             }).join('');
             picksContent = matchRows +
