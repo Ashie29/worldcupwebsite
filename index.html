@@ -2212,6 +2212,7 @@ function renderLeaderboard() {
             ? `<img src="${p.avatar_url}" class="lb-avatar" alt="">`
             : `<span class="lb-avatar-initials">${(p.nickname||p.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</span>`}
           <span${isMe?' style="color:var(--gold);font-weight:500"':''}>${p.nickname||p.name}${isMe?' <span style="font-size:9px;font-family:var(--mono);color:var(--muted)">(you)</span>':''}</span>
+          ${p.nickname && p.name && p.nickname !== p.name ? `<span style="color:var(--muted);font-size:11px">(${p.name})</span>` : ''}
           ${p.paid ? `<span title="Entry fee paid" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#1da1f2;color:#fff;font-size:9px;font-weight:700;flex-shrink:0;line-height:1">✓</span>` : ''}
           <span class="ach-icons">${achIcons(p)}</span>
         </div>
