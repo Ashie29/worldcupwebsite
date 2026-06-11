@@ -854,6 +854,21 @@ function matchCountdown(kickoff) {
 // ════════════════════════════════════════════════════════════════
 // 6. SCORING
 // ════════════════════════════════════════════════════════════════
+// Score-line points for a single match pick:
+// - Exact score match (home & away both correct) = 1 pt, counts as an "exact score"
+// - "Hedge" — scoreline correct but home/away swapped (e.g. picked 3-1, actual 1-3),
+//   excluding draws where swap === exact = 1 pt, but does NOT count as an "exact score"
+// - Otherwise 0 pts
+function scoreLinePoints(pick, result) {
+  const sh = String(pick.score_home ?? '').trim(), sa = String(pick.score_away ?? '').trim();
+  const rh = String(result.score_home ?? '').trim(), ra = String(result.score_away ?? '').trim();
+  if (sh === '' || sa === '' || rh === '' || ra === '') return { pts: 0, exact: false };
+  const ish = parseInt(sh,10), isa = parseInt(sa,10), irh = parseInt(rh,10), ira = parseInt(ra,10);
+  if (ish === irh && isa === ira) return { pts: 1, exact: true };
+  if (ish === ira && isa === irh && ish !== isa) return { pts: 1, exact: false };
+  return { pts: 0, exact: false };
+}
+
 function calcScore(uid) {
   let total = 0, correctPicks = 0, exactScores = 0;
 
@@ -889,13 +904,9 @@ function calcScore(uid) {
       const result = S.results[rid]?.[m.id];
       if (!pick || !result || !result.winner) continue;
       if (pick.winner && pick.winner === result.winner) { total += 2 * mMult; correctPicks++; }
-      // Exact score is independent of winner pick
-      const sh = String(pick.score_home ?? '').trim(), sa = String(pick.score_away ?? '').trim();
-      const rh = String(result.score_home ?? '').trim(), ra = String(result.score_away ?? '').trim();
-      if (sh !== '' && sa !== '' && rh !== '' && ra !== '' &&
-          parseInt(sh,10) === parseInt(rh,10) && parseInt(sa,10) === parseInt(ra,10)) {
-        total += 1 * mMult; exactScores++;
-      }
+      // Score-line points are independent of the winner pick
+      const slp = scoreLinePoints(pick, result);
+      if (slp.pts) { total += slp.pts * mMult; if (slp.exact) exactScores++; }
     }
     for (const bq of getActiveQuestions(rid)) {
       const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -1996,14 +2007,12 @@ function renderPicks() {
       return `<button class="team-btn ${cls}" data-action="pick" data-rid="${rid}" data-mid="${m.id}" data-team="${team}" ${ro?'disabled':''}>${label}</button>`;
     };
 
-    // Exact score is independent of winner
+    // Score-line points are independent of the winner pick
     const correctWinner = hasResult && winner === rw;
-    const exactScore = hasResult && sh !== '' && rsh !== '' &&
-      parseInt(String(sh).trim(), 10) === parseInt(String(rsh).trim(), 10) &&
-      parseInt(String(sa).trim(), 10) === parseInt(String(rsa).trim(), 10);
+    const slp = hasResult ? scoreLinePoints({ score_home: sh, score_away: sa }, { score_home: rsh, score_away: rsa }) : { pts: 0, exact: false };
     let pts = '';
-    if (hasResult && winner) {
-      const earned = (correctWinner ? 2 : 0) + (exactScore ? 1 : 0);
+    if (hasResult && (winner || slp.pts)) {
+      const earned = (correctWinner ? 2 : 0) + slp.pts;
       if (earned === 3)      pts = `<span class="pts-badge pts-ok">+3 pts</span>`;
       else if (earned === 2) pts = `<span class="pts-badge pts-part">+2 pts</span>`;
       else if (earned === 1) pts = `<span class="pts-badge pts-part" style="color:#ce93d8;background:rgba(91,33,182,0.2);border-color:rgba(206,147,216,0.3)">+1 pt</span>`;
@@ -3326,11 +3335,8 @@ function calcRoundScore(uid, rid) {
     const result = S.results[rid]?.[m.id];
     if (!pick || !result || !result.winner) continue;
     if (pick.winner && pick.winner === result.winner) pts += 2 * mMult;
-    const sh = String(pick.score_home ?? '').trim(), sa = String(pick.score_away ?? '').trim();
-    const rh = String(result.score_home ?? '').trim(), ra = String(result.score_away ?? '').trim();
-    const scoresMatch = sh !== '' && sa !== '' && rh !== '' && ra !== '' &&
-      parseInt(sh, 10) === parseInt(rh, 10) && parseInt(sa, 10) === parseInt(ra, 10);
-    if (scoresMatch) pts += 1 * mMult;
+    const slp = scoreLinePoints(pick, result);
+    pts += slp.pts * mMult;
   }
   for (const bq of getActiveQuestions(rid)) {
     const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
@@ -4113,30 +4119,67 @@ function renderResults() {
 function getDefaultRulesText() {
   const winPts = S.ptSettings?.winnerPts ?? 10;
   return `⚽ Match Picks
-Pick the winner of every match. Group stage matches can end in a Draw. Correct winner = 2 pts. Predict the exact final score for a bonus +1 pt — this is awarded independently, even if your winner pick was wrong.
+Pick the winner of every match (Group Stage matches can also end in a Draw).
+
+• Correct winner = 2 pts
+• Exact final score = +1 pt — awarded independently of your winner pick
+• Hedge bonus: if your predicted scoreline is correct but for the opposite team (e.g. you picked 3–1 and the result was 1–3), you still earn +1 pt — even if your winner pick was wrong. This does not count as an "exact score" for tiebreakers.
+
+Maximum per match = 3 pts (2 for the winner + 1 for the scoreline).
 
 ⭐ Bonus Questions
-Each round has bonus questions worth a set number of points. Base value is 3 pts in most rounds, rising to 4 pts in the Semi-Finals and 5 pts in the Final. The admin can also apply a round multiplier to increase all bonus points.
+Each round includes bonus questions worth a base number of points — ranging from 2 pts in early rounds up to 5 pts in the Final. Admins may also apply a bonus-points multiplier to a round, which scales all bonus question values for that round. Bonus questions for a round automatically lock 1 hour before that round's first match kicks off (admins can override this timing per round if needed).
 
-💰 Knockout Wagers
-From Round of 32 onwards, wager up to 2× the base points on each bonus question. Get it right = base pts + wager. Get it wrong = −wager only (match pick points are safe).
+There are two question styles, and an optional wager:
+
+1. Normal — answer correctly to earn the question's points. Answering incorrectly earns 0 pts. No risk.
+2. Over/Under — choose "Over", "Under", or "Abstain". Correct = +points. Incorrect = −points (you can lose points on these!). Abstain = 0 pts (always safe).
+
+💰 Wagers
+Some bonus questions allow you to wager your own point value (0–10) instead of the fixed amount:
+
+• Normal + Wager — correct = +your wager, incorrect = 0 pts
+• Over/Under + Wager — correct = +your wager, incorrect = −your wager, abstain = 0 pts
 
 🏆 Pre-Tournament Picks
-Before the tournament, predict the top 2 finishers for all 12 groups (in order) and pick the overall winner. Correct team in the correct spot = 2 pts. Correct team in the wrong spot = 1 pt. Tournament winner correct = ${winPts} pts.
+Before the tournament starts, predict the top 2 finishers (in order) for all 12 groups, plus the overall tournament winner.
 
-🏆 Tiebreakers
-1. Most correct match picks
-2. Most exact scores
-3. Earliest registration
+• Correct team in the correct spot = 2 pts each
+• Correct team but wrong spot (still in top 2) = 1 pt each
+• Correct tournament winner = ${winPts} pts
+
+Pre-tournament rounds may also include their own bonus questions, scored the same way as above.
+
+🔒 Locks & Deadlines
+• Each match locks for picks 1 hour before its scheduled kickoff (or earlier if manually locked by an admin).
+• Bonus questions for a round lock 1 hour before that round's first match kicks off, unless an admin has set a custom override time.
+• Registration may be closed by the admin after a set cutoff date — no new sign-ups are accepted after that point.
+
+✅ Verified Badge
+Players who have paid their entry fee are marked with a blue checkmark badge on the Leaderboard and their profile.
+
+⚡ Multipliers
+For certain rounds (typically later knockout stages), admins may apply a match-points and/or bonus-points multiplier to raise the stakes. When active, all match pick points and/or bonus question points earned in that round are multiplied accordingly.
+
+🏆 Tiebreakers & Prizes
+Final standings are ranked by:
+1. Total points
+2. Most correct match-winner picks
+3. Most exact scores
+
+If players remain tied after all tiebreakers, the prize for their combined positions is split evenly between them — e.g. a two-way tie for 1st splits the 1st + 2nd place prizes 50/50, a three-way tie for 1st splits 1st + 2nd + 3rd 33/33/33, and so on.
 
 📊 Points Summary
 ⚽ Correct winner pick — 2 pts
 🎯 Exact score (independent of winner) — +1 pt
-⭐ Bonus questions — 3–5 pts
-💰 Knockout wager correct — base pts + wager
-💀 Knockout wager wrong — −wager only
-🏆 Pre-tournament group top-2 correct spot — 2 pts each
-🏆 Pre-tournament group top-2 right team wrong spot — 1 pt each
+🔄 Hedge (correct scoreline, swapped teams) — +1 pt
+⭐ Bonus question (Normal), correct — base pts (or your wager)
+⭐ Bonus question (Normal), incorrect — 0 pts
+⭐ Bonus question (Over/Under), correct — +base pts (or +your wager)
+⭐ Bonus question (Over/Under), incorrect — −base pts (or −your wager)
+⭐ Bonus question (Over/Under), abstain — 0 pts
+🏆 Pre-tournament group top-2, correct spot — 2 pts each
+🏆 Pre-tournament group top-2, right team wrong spot — 1 pt each
 🏆 Pre-tournament tournament winner — ${winPts} pts`;
 }
 
