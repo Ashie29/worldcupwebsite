@@ -671,6 +671,8 @@ const S = {
   registrationCutoff: null, // ISO date string — set by admin, stored in app_config
   noticeBoard: '',          // plain-text notice shown on dashboard, editable by admin
   bonusLockOverrides: {}, // rid → ISO string — admin override for when bonus questions lock (overrides auto 1hr-before-first-match)
+  activityLogs: [],   // admin Logs tab — recent pick/bonus answer changes, loaded on demand
+  activityLogsLoaded: false,
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -997,14 +999,42 @@ async function loadAllData() {
   S.noticeBoard = noticeCfg?.notice || '';
 }
 
+// Admin-only: fetch recent activity logs (pick/bonus answer changes) for the Logs tab
+async function loadActivityLogs() {
+  const { data, error } = await sb.from('activity_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (!error) S.activityLogs = data || [];
+  S.activityLogsLoaded = true;
+}
+
+// Fire-and-forget activity log entry — records who changed what, from what, to what, and when.
+function logActivity(rid, itemType, itemId, field, oldVal, newVal) {
+  const row = {
+    user_id: S.user.id, round_id: rid, item_type: itemType, item_id: itemId,
+    field, old_value: oldVal == null ? '' : String(oldVal), new_value: newVal == null ? '' : String(newVal),
+  };
+  sb.from('activity_logs').insert(row).then(({ error }) => {
+    if (error) console.warn('activity log failed:', error.message);
+  });
+}
+
 function upsertPick(rid, mid, winner, sh, sa) {
+  // Capture previous values for change-logging
+  const prev = S.picks[S.user.id]?.[rid]?.[mid] || {};
+  const newSh = String(sh), newSa = String(sa);
+  if ((prev.winner || '') !== (winner || '')) logActivity(rid, 'pick', mid, 'winner', prev.winner, winner);
+  if ((prev.score_home ?? '') !== newSh)       logActivity(rid, 'pick', mid, 'score_home', prev.score_home, newSh);
+  if ((prev.score_away ?? '') !== newSa)       logActivity(rid, 'pick', mid, 'score_away', prev.score_away, newSa);
+
   // Update local state immediately so the UI responds instantly
   if (!S.picks[S.user.id]) S.picks[S.user.id] = {};
   if (!S.picks[S.user.id][rid]) S.picks[S.user.id][rid] = {};
-  S.picks[S.user.id][rid][mid] = { winner, score_home: String(sh), score_away: String(sa) };
+  S.picks[S.user.id][rid][mid] = { winner, score_home: newSh, score_away: newSa };
   // Sync to Supabase in the background with one retry
   const row = { user_id: S.user.id, round_id: rid, match_id: mid,
-    winner, score_home: String(sh), score_away: String(sa) };
+    winner, score_home: newSh, score_away: newSa };
   const doWrite = () => sb.from('picks').upsert(row, { onConflict: 'user_id,round_id,match_id' });
   doWrite().then(({ error }) => {
     if (error) { setTimeout(() => doWrite(), 3000); } // retry once after 3s
@@ -1012,13 +1042,19 @@ function upsertPick(rid, mid, winner, sh, sa) {
 }
 
 function upsertBonusAnswer(rid, qid, answer, wager) {
+  // Capture previous values for change-logging
+  const prev = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
+  const newWager = Number(wager) || 0;
+  if ((prev.answer || '') !== (answer || ''))   logActivity(rid, 'bonus', qid, 'answer', prev.answer, answer);
+  if ((Number(prev.wager) || 0) !== newWager)   logActivity(rid, 'bonus', qid, 'wager', prev.wager, newWager);
+
   // Update local state immediately so the UI responds instantly
   if (!S.bonusAnswers[S.user.id]) S.bonusAnswers[S.user.id] = {};
   if (!S.bonusAnswers[S.user.id][rid]) S.bonusAnswers[S.user.id][rid] = {};
-  S.bonusAnswers[S.user.id][rid][qid] = { answer, wager: Number(wager) || 0 };
+  S.bonusAnswers[S.user.id][rid][qid] = { answer, wager: newWager };
   // Sync to Supabase in the background with one retry
   const row = { user_id: S.user.id, round_id: rid, question_id: qid,
-    answer, wager: Number(wager) || 0 };
+    answer, wager: newWager };
   const doWrite = () => sb.from('bonus_answers').upsert(row, { onConflict: 'user_id,round_id,question_id' });
   doWrite().then(({ error }) => {
     if (error) { setTimeout(() => doWrite(), 3000); } // retry once after 3s
@@ -1766,7 +1802,12 @@ function renderPicks() {
     const winPts = S.ptSettings?.winnerPts ?? 10;
     const allTeams = Object.values(GROUPS).flat().sort();
     const maxGroupPts = Object.keys(GROUPS).length * 4; // 12 × 4 = 48
-    const totalMax = maxGroupPts + winPts;
+    const ptBonusQsForMax = getActiveQuestions('pt');
+    const { bonus: ptBMult } = getMultipliers('pt');
+    const ptBonusMaxPts = ptBonusQsForMax.reduce((sum, q) => sum + q.pts * ptBMult, 0);
+    const ptBonusNote = ptBonusQsForMax.length
+      ? ` + ${ptBonusMaxPts} pts (${ptBonusQsForMax.length} bonus Q${ptBonusQsForMax.length>1?'s':''})` : '';
+    const totalMax = maxGroupPts + winPts + ptBonusMaxPts;
 
     const groupHtml = Object.entries(GROUPS).map(([g, teams]) => {
       const p1 = S.bonusAnswers[uid]?.['pt']?.[`pt_${g}_1`]?.answer || '';
@@ -1828,7 +1869,7 @@ function renderPicks() {
       <div class="pill-row">${pillsHtml}</div>
       <div class="round-dates">📅 Before Jun 11 · Lock in your pre-tournament predictions</div>
       <div class="notice" style="margin-bottom:16px">
-        🏆 Up for grabs: <strong>${totalMax} pts</strong> — ${maxGroupPts} from group picks (12 groups × max 4 pts) + ${winPts} from tournament winner
+        🏆 Up for grabs: <strong>${totalMax} pts</strong> — ${maxGroupPts} from group picks (12 groups × max 4 pts) + ${winPts} from tournament winner${ptBonusNote}
       </div>
       <div class="card">
         <div class="card-title">🏆 Group Stage Predictions</div>
@@ -2244,6 +2285,7 @@ function renderAdmin() {
     { id:'questions', label:'❓ Bank'     },
     { id:'players',   label:'👥 Players'  },
     { id:'sync',      label:'🔄 Sync'     },
+    { id:'logs',      label:'📜 Logs'     },
   ];
 
   const tabsHtml = ADMIN_TABS.map(t =>
@@ -3068,6 +3110,69 @@ function renderAdmin() {
             5. Scores auto-populate the Results tab and all player picks are re-scored
           </div>
         </div>
+      </div>`;
+  }
+
+  // ── Logs tab ─────────────────────────────────────────────────
+  if (adminTab === 'logs') {
+    const getName = p => p?.nickname || p?.name || '—';
+
+    const describeItem = (log) => {
+      const round = ROUNDS[log.round_id];
+      if (log.item_type === 'pick') {
+        const m = round?.matches?.find(x => x.id === log.item_id);
+        if (!m) return log.item_id;
+        const home = getBracketTeam(m.id, 'home', m.home);
+        const away = getBracketTeam(m.id, 'away', m.away);
+        return `${home || 'TBD'} vs ${away || 'TBD'}`;
+      }
+      if (log.item_type === 'bonus') {
+        const bq = getActiveQuestions(log.round_id).find(q => q.id === log.item_id);
+        return bq ? bq.text : log.item_id;
+      }
+      return log.item_id;
+    };
+
+    const fieldLabel = { winner: 'Pick', score_home: 'Home Score', score_away: 'Away Score', answer: 'Answer', wager: 'Wager' };
+
+    const fmtVal = (log, val) => {
+      if (val === '' || val == null) return '<span style="color:var(--muted);font-style:italic">empty</span>';
+      return val;
+    };
+
+    const rows = (S.activityLogs || []).map(log => {
+      const player = S.profiles.find(p => p.id === log.user_id);
+      const round = ROUNDS[log.round_id];
+      const ts = new Date(log.created_at).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', second:'2-digit' });
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;color:var(--muted)">${ts}</td>
+        <td style="font-weight:600">${getName(player)}</td>
+        <td style="font-size:11px;color:var(--muted)">${round?.id === 'pt' ? 'Pre-Tournament' : (round?.label || log.round_id)}</td>
+        <td style="font-size:12px">${describeItem(log)}</td>
+        <td style="font-size:11px;color:var(--muted)">${fieldLabel[log.field] || log.field}</td>
+        <td style="font-size:12px;color:#ef9a9a">${fmtVal(log, log.old_value)}</td>
+        <td style="font-size:12px;color:#a5d6a7">${fmtVal(log, log.new_value)}</td>
+      </tr>`;
+    }).join('');
+
+    tabContent = `
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+          <div class="card-title" style="margin:0">📜 Activity Log</div>
+          <button class="btn btn-sm btn-outline" id="refresh-logs-btn">🔄 Refresh</button>
+        </div>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:14px;line-height:1.6">
+          Every time a player sets or changes a pick or bonus answer, it's recorded here with a timestamp —
+          including changes made after a match should have locked. Showing the most recent ${(S.activityLogs||[]).length} change(s).
+        </p>
+        ${rows ? `<div style="overflow-x:auto">
+          <table class="rounds-table">
+            <thead><tr>
+              <th>Time</th><th>Player</th><th>Round</th><th>Match / Question</th><th>Field</th><th>From</th><th>To</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>` : `<p style="color:var(--muted);font-size:13px">No activity logged yet.</p>`}
       </div>`;
   }
 
@@ -4645,8 +4750,24 @@ function attachEvents() {
 
   // Admin: tab switcher
   document.querySelectorAll('[data-admin-tab]').forEach(btn => {
-    btn.onclick = () => { S.adminTab = btn.dataset.adminTab; render(); };
+    btn.onclick = () => {
+      S.adminTab = btn.dataset.adminTab;
+      if (S.adminTab === 'logs' && !S.activityLogsLoaded) {
+        loadActivityLogs().then(render);
+      }
+      render();
+    };
   });
+
+  // Admin: refresh activity logs
+  const refreshLogsBtn = document.getElementById('refresh-logs-btn');
+  if (refreshLogsBtn) {
+    refreshLogsBtn.onclick = async () => {
+      refreshLogsBtn.textContent = 'Refreshing…';
+      await loadActivityLogs();
+      render();
+    };
+  }
 
   // Admin: question bank category filter
   document.querySelectorAll('[data-qcat]').forEach(btn => {
