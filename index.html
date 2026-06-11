@@ -51,8 +51,18 @@ a{color:var(--gold);text-decoration:none;}
 
 /* ── Layout ──────────────────────────────────────────────────── */
 .page{max-width:900px;margin:0 auto;padding:32px 20px 80px;}
+.page.page-dashboard{max-width:1240px;}
 .page-title{font-family:var(--display);color:var(--gold);font-size:42px;
   letter-spacing:0.06em;margin-bottom:24px;line-height:1;}
+
+/* ── Dashboard side-by-side layout ──────────────────────────────── */
+.dashboard-grid{display:flex;flex-direction:row-reverse;gap:24px;align-items:flex-start;}
+.dashboard-main{flex:1;min-width:0;}
+.dashboard-side{width:300px;flex-shrink:0;}
+@media (max-width:1100px){
+  .dashboard-grid{flex-direction:column;}
+  .dashboard-side{width:100%;}
+}
 
 /* ── Cards ───────────────────────────────────────────────────── */
 .card{background:var(--card);border:1px solid var(--border2);padding:20px;margin-bottom:16px;}
@@ -392,6 +402,7 @@ body.light-mode .modal-stat{background:rgba(0,0,0,0.03);}
   .match-row{gap:5px;}
   .stat-grid{grid-template-columns:1fr 1fr;}
   .highlights-grid{grid-template-columns:1fr 1fr;}
+  .bonus-tracker-card .tracker-big{font-size:30px !important;}
 }
 </style>
 </head>
@@ -688,6 +699,13 @@ function isBonusLocked(rid) {
   const round = ROUNDS[rid];
   if (!round) return false;
   if (S.roundSettings?.[rid]?.locked) return true;
+  if (round.special === 'pretournament') {
+    const cutoffPassed = !!(S.registrationCutoff && Date.now() >= new Date(S.registrationCutoff).getTime());
+    // Also treat pre-tournament as locked once the tournament has actually begun,
+    // regardless of the registration cutoff date (covers cutoffs set in the future for late signups)
+    const tournamentStarted = Object.values(ROUNDS).some(r => r.matches.some(m => S.results[r.id]?.[m.id]?.winner));
+    return cutoffPassed || tournamentStarted;
+  }
   const roundKickoffs = round.matches
     .map(m => getKickoff(m.id, m.kickoff))
     .filter(Boolean)
@@ -1709,7 +1727,7 @@ function renderShell(content) {
         <button class="nav-signout" id="signout-btn">Sign out</button>
       </div>
     </nav>
-    <div class="page">${pickReminderBanner()}${content}</div>`;
+    <div class="page${S.page==='dashboard'?' page-dashboard':''}">${pickReminderBanner()}${content}</div>`;
 
   // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(btn => {
@@ -3695,13 +3713,13 @@ function renderLiveMatches() {
 // ── Live Bonus Trackers (admin-configurable progress for any bonus question) ──
 function renderBonusTrackers() {
   const isAdminUser = !!S.profile?.is_admin;
-  const rounds = Object.values(ROUNDS).filter(r => r.special !== 'pretournament');
+  const rounds = Object.values(ROUNDS);
 
   const items = [];
   rounds.forEach(round => {
     if (!isBonusLocked(round.id)) return;
     getActiveQuestions(round.id).forEach(bq => {
-      const resolved = !!S.bonusResults[round.id]?.[bq.id];
+      const resolved = !!S.bonusResults[round.id]?.[bq.id]?.answer;
       if (resolved) return;
       const prog = S.bonusProgress[round.id]?.[bq.id] || {};
       const enabled = !!prog.enabled;
@@ -3712,42 +3730,39 @@ function renderBonusTrackers() {
 
   if (!items.length) return '';
 
-  const display = (bq, prog, isOU) => {
+  // ── Visible trackers (shown to everyone) — one card each ───────
+  const visible = items.filter(it => it.enabled);
+  const visibleCards = visible.map(({ round, bq, prog, isOU }) => {
     const isCounter = isOU || prog.mode === 'counter';
+    let body;
     if (isCounter) {
       const target  = Number(prog.target)  || 0;
       const current = Number(prog.current) || 0;
       if (target > 0) {
         const pct = Math.min(100, Math.max(0, (current / target) * 100));
-        return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">
-          <div style="flex:1;height:8px;background:var(--bg2);border:1px solid var(--border2);margin-right:10px;position:relative">
+        body = `
+          <div class="tracker-big" style="font-size:36px;font-weight:700;color:var(--gold);font-family:var(--mono);line-height:1;margin:10px 0 8px">${current}<span style="font-size:16px;color:var(--muted)"> / ${target}</span></div>
+          <div style="height:8px;background:var(--bg2);border:1px solid var(--border2);position:relative">
             <div style="position:absolute;left:0;top:0;bottom:0;background:var(--gold);width:${pct}%"></div>
-          </div>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--gold);white-space:nowrap">${current} / ${target}</span>
-        </div>`;
+          </div>`;
+      } else if (prog.current !== '' && prog.current != null) {
+        body = `<div class="tracker-big" style="font-size:40px;font-weight:700;color:var(--gold);font-family:var(--mono);line-height:1;margin:10px 0 4px">${current}</div>`;
+      } else {
+        body = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Not yet tracked</div>`;
       }
-      if (prog.current !== '' && prog.current != null) {
-        return `<div style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--mono);margin-top:4px">Currently: ${current}</div>`;
-      }
-      return `<div style="font-size:10px;color:var(--muted);margin-top:4px">Not yet tracked</div>`;
     } else {
       if (prog.leader) {
-        return `<div style="font-size:13px;margin-top:4px"><span style="color:var(--muted);font-size:11px">Current Leader:</span> <span style="color:var(--gold);font-weight:600">${prog.leader}</span>${prog.note ? ` <span style="color:var(--muted);font-size:11px">— ${prog.note.replace(/</g,'&lt;')}</span>` : ''}</div>`;
+        body = `<div style="font-size:22px;font-weight:700;color:var(--gold);font-family:var(--display);letter-spacing:0.03em;margin:10px 0 4px;word-break:break-word">${prog.leader}</div>${prog.note ? `<div style="font-size:11px;color:var(--muted);word-break:break-word">${prog.note.replace(/</g,'&lt;')}</div>` : ''}`;
+      } else {
+        body = `<div style="font-size:10px;color:var(--muted);margin-top:8px">Not yet tracked</div>`;
       }
-      return `<div style="font-size:10px;color:var(--muted);margin-top:4px">Not yet tracked</div>`;
     }
-  };
-
-  // ── Visible trackers (shown to everyone) ──────────────────────
-  const visible = items.filter(it => it.enabled);
-  const visibleRows = visible.map(({ round, bq, prog, isOU }) => `
-    <div style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text)">${bq.text}</span>
-        <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">${round.label}</span>
-      </div>
-      ${display(bq, prog, isOU)}
-    </div>`).join('');
+    return `<div class="card bonus-tracker-card" style="margin-bottom:16px">
+      <div style="font-size:9px;letter-spacing:0.1em;color:var(--gold);font-family:var(--mono)">📊 ${round.label.toUpperCase()}</div>
+      <div style="font-size:13px;color:var(--text);margin-top:4px;word-break:break-word">${bq.text}</div>
+      ${body}
+    </div>`;
+  }).join('');
 
   // ── Admin management (collapsed by default) ───────────────────
   const manageHtml = isAdminUser ? (() => {
@@ -3775,40 +3790,38 @@ function renderBonusTrackers() {
         <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
           <span class="wager-hint">Current:</span>
           <input type="number" step="0.5" value="${prog.current ?? ''}" data-action="bonus-progress-current" data-rid="${round.id}" data-qid="${bq.id}"
-            style="width:70px;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0">
+            style="width:70px;max-width:100%;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0;box-sizing:border-box">
           <span class="wager-hint">Target:</span>
           <input type="number" step="0.5" value="${prog.target ?? ''}" data-action="bonus-progress-target" data-rid="${round.id}" data-qid="${bq.id}"
-            style="width:70px;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0">
+            style="width:70px;max-width:100%;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0;box-sizing:border-box">
         </div>` : `
         <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
           <span class="wager-hint">Leader:</span>
           <select data-action="bonus-progress-leader" data-rid="${round.id}" data-qid="${bq.id}"
-            style="height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0">
+            style="height:26px;max-width:100%;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0;box-sizing:border-box">
             <option value="" style="color:#000;background:#fff">—</option>
             ${optsList.map(o => `<option value="${o.replace(/"/g,'&quot;')}" style="color:#000;background:#fff" ${prog.leader===o?'selected':''}>${o}</option>`).join('')}
           </select>
           <span class="wager-hint">Note:</span>
           <input type="text" value="${(prog.note ?? '').replace(/"/g,'&quot;')}" placeholder="optional detail" data-action="bonus-progress-note" data-rid="${round.id}" data-qid="${bq.id}"
-            style="width:120px;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0">
+            style="width:120px;max-width:100%;height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0;box-sizing:border-box">
         </div>`}
         <div style="margin-top:6px">
           <button class="btn btn-sm btn-outline" data-action="save-bonus-progress" data-rid="${round.id}" data-qid="${bq.id}">Save</button>
         </div>
       </div>`;
     }).join('');
-    return `<details style="margin-top:${visible.length?'4px':'0'}">
-      <summary style="cursor:pointer;font-size:11px;color:var(--muted);letter-spacing:0.05em;user-select:none">⚙️ MANAGE TRACKERS (${items.length})</summary>
-      <div style="margin-top:12px">${rows}</div>
-    </details>`;
+    return `<div class="card" style="margin-bottom:16px">
+      <details>
+        <summary style="cursor:pointer;font-size:11px;color:var(--muted);letter-spacing:0.05em;user-select:none">⚙️ MANAGE TRACKERS (${items.length})</summary>
+        <div style="margin-top:12px">${rows}</div>
+      </details>
+    </div>`;
   })() : '';
 
   if (!visible.length && !manageHtml) return '';
 
-  return `<div class="card" style="margin-bottom:16px">
-    <div class="card-title">📊 Live Bonus Trackers</div>
-    ${visible.length ? visibleRows : (isAdminUser ? '<div style="font-size:11px;color:var(--muted)">No trackers currently shown to players.</div>' : '')}
-    ${manageHtml}
-  </div>`;
+  return visibleCards + manageHtml;
 }
 
 function renderDashboard() {
@@ -3973,23 +3986,29 @@ function renderDashboard() {
     </div>`;
   })();
 
+  const bonusTrackersHtml = renderBonusTrackers();
+
   return `
     <div class="page-title">Dashboard</div>
     ${noticeBoardHtml}
-    <div class="stat-grid">${statsCards}</div>
-    ${liveSection}
-    ${podiumHtml}
-    ${renderBonusTrackers()}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      ${hlCard('⚡', 'Round Leader', roundLeader,
-          lastRound ? `${roundLeaderPts} pts in ${lastRound.label.replace('Group Stage – ','')}` : '')}
-      ${hlCard('🎯', 'Most Correct Picks', mostCorrect,
-          mostCorrect ? `${mostCorrectN} correct picks` : '')}
-      ${hlCard('🔮', 'Exact Score King', exactKing,
-          exactKing ? `${exactKingN} exact scores` : '')}
-      ${nextMatchCard}
-    </div>
-    ${roundsTableHtml}`;
+    <div class="dashboard-grid">
+      <div class="dashboard-main">
+        <div class="stat-grid">${statsCards}</div>
+        ${liveSection}
+        ${podiumHtml}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          ${hlCard('⚡', 'Round Leader', roundLeader,
+              lastRound ? `${roundLeaderPts} pts in ${lastRound.label.replace('Group Stage – ','')}` : '')}
+          ${hlCard('🎯', 'Most Correct Picks', mostCorrect,
+              mostCorrect ? `${mostCorrectN} correct picks` : '')}
+          ${hlCard('🔮', 'Exact Score King', exactKing,
+              exactKing ? `${exactKingN} exact scores` : '')}
+          ${nextMatchCard}
+        </div>
+        ${roundsTableHtml}
+      </div>
+      ${bonusTrackersHtml ? `<div class="dashboard-side">${bonusTrackersHtml}</div>` : ''}
+    </div>`;
 }
 
 // ── Bracket ───────────────────────────────────────────────────────
