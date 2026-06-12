@@ -685,6 +685,7 @@ const S = {
   activityLogs: [],   // admin Logs tab — recent pick/bonus answer changes, loaded on demand
   activityLogsLoaded: false,
   bonusProgress: {}, // rid → qid → {current, target} — live tracker for Over/Under bonus questions, admin-editable
+  rankSnapshot: {}, // uid → total — leaderboard totals as of just before the most recent result/bonus edit, used for the +/- movement badge
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -1059,6 +1060,33 @@ async function loadAllData() {
   // notice board (stored in round_settings with special round_id '__notice__')
   const { data: noticeCfg } = await sb.from('round_settings').select('notice').eq('round_id','__notice__').single();
   S.noticeBoard = noticeCfg?.notice || '';
+
+  // rank snapshot — totals as of just before the most recent result/bonus edit (stored under '__rank_snapshot__')
+  const { data: rankCfg } = await sb.from('round_settings').select('rank_snapshot').eq('round_id','__rank_snapshot__').single();
+  if (rankCfg?.rank_snapshot) {
+    try {
+      const rs = JSON.parse(rankCfg.rank_snapshot);
+      if (rs && typeof rs === 'object') S.rankSnapshot = rs;
+    } catch(e) {}
+  }
+}
+
+// Current leaderboard totals for all non-admin players, keyed by user id
+function snapshotTotals() {
+  const totals = {};
+  S.profiles.filter(p => !p.is_admin).forEach(p => { totals[p.id] = calcScore(p.id).total; });
+  return totals;
+}
+
+// Persist the current totals as the "before the latest edit" snapshot for the movement badge
+function saveRankSnapshot() {
+  S.rankSnapshot = snapshotTotals();
+  sb.from('round_settings').upsert(
+    { round_id: '__rank_snapshot__', rank_snapshot: JSON.stringify(S.rankSnapshot) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('saveRankSnapshot failed:', error.message);
+  });
 }
 
 // Admin-only: fetch recent activity logs (pick/bonus answer changes) for the Logs tab
@@ -1124,6 +1152,10 @@ function upsertBonusAnswer(rid, qid, answer, wager) {
 }
 
 async function upsertResult(rid, mid, winner, sh, sa) {
+  // Snapshot leaderboard totals as they were just before this result change,
+  // so the dashboard's +/- movement badge reflects the impact of this edit
+  saveRankSnapshot();
+
   // Update local state immediately
   if (!S.results[rid]) S.results[rid] = {};
   S.results[rid][mid] = { winner, score_home: String(sh), score_away: String(sa) };
@@ -1161,6 +1193,10 @@ function showAdminError(msg) {
 }
 
 async function upsertBonusResult(rid, qid, answer) {
+  // Snapshot leaderboard totals as they were just before this bonus result change,
+  // so the dashboard's +/- movement badge reflects the impact of this edit
+  saveRankSnapshot();
+
   await sb.from('bonus_results').upsert(
     { round_id: rid, question_id: qid, answer },
     { onConflict: 'round_id,question_id' }
@@ -2203,20 +2239,13 @@ function renderLeaderboard() {
     .map(a => ACHIEVEMENTS[a.type] ? `<span class="ach-icon" title="${ACHIEVEMENTS[a.type].label}">${ACHIEVEMENTS[a.type].icon}</span>` : '')
     .join('');
 
-  // ── Movement: compare current rank to rank before the latest round ─
+  // ── Movement: compare current rank to rank as of the last saved snapshot ─
+  // (snapshot is taken just before each admin result/bonus edit — see saveRankSnapshot)
   const movementMap = {};
-  const playedRoundIds = Object.values(ROUNDS)
-    .filter(r => r.special !== 'pretournament' && r.matches.some(m => S.results[r.id]?.[m.id]?.winner))
-    .map(r => r.id);
-  if (playedRoundIds.length > 0) {
-    const latestRid = playedRoundIds[playedRoundIds.length - 1];
-    // Build prev leaderboard excluding the latest round
+  if (S.rankSnapshot && Object.keys(S.rankSnapshot).length > 0) {
     const prevSorted = S.profiles
       .filter(p => !p.is_admin)
-      .map(p => {
-        const prevTotal = lb.find(x => x.id === p.id)?.total - calcRoundScore(p.id, latestRid);
-        return { id: p.id, prevTotal };
-      })
+      .map(p => ({ id: p.id, prevTotal: S.rankSnapshot[p.id] ?? lb.find(x => x.id === p.id)?.total ?? 0 }))
       .sort((a, b) => b.prevTotal - a.prevTotal);
     const prevRankMap = {};
     for (let i = 0; i < prevSorted.length; i++) {
