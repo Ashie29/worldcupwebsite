@@ -3581,11 +3581,12 @@ function renderLiveMatches() {
             const sa    = pick.score_away ?? '';
             const hasSc = sh !== '' && sa !== '';
             const correct    = hasResult && wp && wp === result.winner;
-            const exactScore = hasResult && hasSc && result.score_home !== '' &&
-              parseInt(sh,10) === parseInt(result.score_home,10) &&
-              parseInt(sa,10)  === parseInt(result.score_away,10);
-            const pts = !hasResult ? '' : correct
-              ? `<span style="color:#66bb6a">+${(2 + (exactScore?1:0)) * mMult}</span>`
+            // Score-line points are independent of the winner pick
+            const slp = hasResult ? scoreLinePoints({ score_home: sh, score_away: sa }, { score_home: result.score_home, score_away: result.score_away }) : { pts: 0, exact: false };
+            const exactScore = slp.exact;
+            const earnedPts = (correct ? 2 : 0) + slp.pts;
+            const pts = !hasResult ? '' : earnedPts
+              ? `<span style="color:#66bb6a">+${earnedPts * mMult}</span>`
               : `<span style="color:var(--faint)">0</span>`;
             const pickCol  = !wp ? 'var(--faint)' : !hasResult ? 'var(--text)' : correct ? '#66bb6a' : '#ef5350';
             const scoreCol = !hasSc ? 'var(--faint)' : !hasResult ? 'var(--muted)' : exactScore ? '#66bb6a' : 'var(--muted)';
