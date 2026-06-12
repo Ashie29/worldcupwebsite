@@ -1089,6 +1089,22 @@ function saveRankSnapshot() {
   });
 }
 
+// Snapshot leaderboard totals before an edit, but only once per "match" — if the
+// admin makes several edits in quick succession to the same match (e.g. set the
+// winner, then fill in the score), they're treated as one entry and only the
+// combined effect shows up in the movement badge.
+const SNAPSHOT_GROUP_WINDOW = 60000; // ms
+function maybeSnapshotBeforeEdit(key) {
+  const now = Date.now();
+  if (S._snapshotKey === key && (now - (S._snapshotTime || 0)) < SNAPSHOT_GROUP_WINDOW) {
+    S._snapshotTime = now;
+    return;
+  }
+  S._snapshotKey = key;
+  S._snapshotTime = now;
+  saveRankSnapshot();
+}
+
 // Admin-only: fetch recent activity logs (pick/bonus answer changes) for the Logs tab
 async function loadActivityLogs() {
   const { data, error } = await sb.from('activity_logs')
@@ -1152,9 +1168,9 @@ function upsertBonusAnswer(rid, qid, answer, wager) {
 }
 
 async function upsertResult(rid, mid, winner, sh, sa) {
-  // Snapshot leaderboard totals as they were just before this result change,
-  // so the dashboard's +/- movement badge reflects the impact of this edit
-  saveRankSnapshot();
+  // Snapshot leaderboard totals as they were just before this match's result edits began,
+  // so the dashboard's +/- movement badge reflects this match as a whole
+  maybeSnapshotBeforeEdit(`${rid}:${mid}`);
 
   // Update local state immediately
   if (!S.results[rid]) S.results[rid] = {};
@@ -1193,9 +1209,9 @@ function showAdminError(msg) {
 }
 
 async function upsertBonusResult(rid, qid, answer) {
-  // Snapshot leaderboard totals as they were just before this bonus result change,
-  // so the dashboard's +/- movement badge reflects the impact of this edit
-  saveRankSnapshot();
+  // Snapshot leaderboard totals as they were just before this bonus question's edits began,
+  // so the dashboard's +/- movement badge reflects this bonus question as a whole
+  maybeSnapshotBeforeEdit(`${rid}:${qid}`);
 
   await sb.from('bonus_results').upsert(
     { round_id: rid, question_id: qid, answer },
