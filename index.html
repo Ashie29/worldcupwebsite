@@ -1069,6 +1069,28 @@ async function loadAllData() {
       if (rs && typeof rs === 'object') S.rankSnapshot = rs;
     } catch(e) {}
   }
+
+  // prize configuration (stored in round_settings with special round_id '__prizes__')
+  const { data: prizeCfg } = await sb.from('round_settings').select('prizes').eq('round_id','__prizes__').single();
+  if (prizeCfg?.prizes) {
+    try {
+      const pz = JSON.parse(prizeCfg.prizes);
+      if (pz && typeof pz === 'object') S.prizes = pz;
+    } catch(e) {}
+  } else if (S.prizes?.entries?.length) {
+    // Migrate prizes previously saved only to this admin's localStorage
+    savePrizes();
+  }
+}
+
+// Persist prize configuration to Supabase so it's visible on every device
+function savePrizes() {
+  sb.from('round_settings').upsert(
+    { round_id: '__prizes__', prizes: JSON.stringify(S.prizes) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('savePrizes failed:', error.message);
+  });
 }
 
 // Current leaderboard totals for all non-admin players, keyed by user id
@@ -1690,6 +1712,7 @@ function renderShell(content) {
     ...(isAdmin ? [{ id:'admin', label:'⚙️ Admin' }] : []),
     { id:'dashboard', label:'Dashboard' },
     { id:'picks', label:'My Picks' },
+    { id:'ptpicks', label:'Pre-Tournament Picks' },
     { id:'leaderboard', label:'Leaderboard' },
     { id:'results', label:'Results' },
     { id:'history', label:'Match History' },
@@ -3406,6 +3429,84 @@ function renderHistory() {
     ${roundsHtml}`;
 }
 
+// ── Pre-Tournament Picks page ───────────────────────────────────────
+function renderPtPicks() {
+  if (!isBonusLocked('pt')) {
+    return `<div class="page-title">Pre-Tournament Picks</div>
+      <div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">
+        🔒 Everyone's pre-tournament predictions will be revealed here once predictions lock.</p></div>`;
+  }
+
+  const players  = S.profiles.filter(p => !p.is_admin);
+  const allTeams = Object.values(GROUPS).flat().sort();
+  const br = S.bonusResults['pt'] || {};
+  const winRes = br['pt_winner']?.answer || '';
+  const ptQs = getActiveQuestions('pt');
+
+  const badge = (pick, res, qualified) => {
+    if (!pick) return '<span style="color:var(--faint)">— no pick —</span>';
+    if (!res) return `<span style="color:var(--text)">${F(pick)} ${pick}</span>`;
+    if (pick === res) return `<span style="color:#a5d6a7">${F(pick)} ${pick} ✅</span>`;
+    if (qualified && qualified.has(pick)) return `<span style="color:#90caf9">${F(pick)} ${pick} 🎯</span>`;
+    return `<span style="color:var(--muted)">${F(pick)} ${pick} ❌</span>`;
+  };
+
+  const playerCards = players.map(player => {
+    const ba = S.bonusAnswers[player.id]?.['pt'] || {};
+    const name = player.nickname || player.name || '—';
+
+    const groupRows = Object.entries(GROUPS).map(([g, teams]) => {
+      const p1 = ba[`pt_${g}_1`]?.answer || '';
+      const p2 = ba[`pt_${g}_2`]?.answer || '';
+      const r1 = br[`pt_${g}_1`]?.answer || '';
+      const r2 = br[`pt_${g}_2`]?.answer || '';
+      const qualified = new Set([r1, r2].filter(Boolean));
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+        border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
+        <span style="color:var(--muted);min-width:80px;flex-shrink:0;font-family:var(--mono);font-size:11px">GROUP ${g}</span>
+        <span>1st: ${badge(p1, r1, qualified)}</span>
+        <span style="color:var(--border2)">·</span>
+        <span>2nd: ${badge(p2, r2, qualified)}</span>
+      </div>`;
+    }).join('');
+
+    const winPick = ba['pt_winner']?.answer || '';
+    const winBadge = badge(winPick, winRes, null);
+
+    const bonusRows = ptQs.map(bq => {
+      const ans     = ba[bq.id] || {};
+      const correct = br[bq.id]?.answer || '';
+      const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+        border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
+        <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
+        <span style="color:${ans.answer?'var(--gold)':'var(--faint)'};flex-shrink:0">${ans.answer||'— no pick —'} ${icon}</span>
+      </div>`;
+    }).join('');
+
+    const uid = `ptpick-${player.id}`;
+    return `<div class="card" style="padding:0;margin-bottom:12px">
+      <div onclick="var d=document.getElementById('${uid}');var a=document.getElementById('${uid}-arr');if(d.style.display==='none'){d.style.display='block';a.textContent='▲';}else{d.style.display='none';a.textContent='▼';}"
+        style="display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none">
+        <span style="font-size:15px;font-family:var(--display);letter-spacing:0.04em;flex:1">${name}</span>
+        <span id="${uid}-arr" style="color:var(--muted);font-size:11px;flex-shrink:0">▼</span>
+      </div>
+      <div id="${uid}" style="display:none;padding:0 16px 14px">
+        ${groupRows}
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12px;margin-top:4px">
+          <span style="color:var(--gold);min-width:80px;flex-shrink:0;font-family:var(--mono);font-size:11px">🏆 WINNER</span>
+          ${winBadge}
+        </div>
+        ${bonusRows ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--gold);margin-bottom:6px">⭐ Bonus</div>${bonusRows}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="page-title">Pre-Tournament Picks</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Click a player to see their group qualifier picks, tournament winner pick, and bonus answers.</p>
+    ${playerCards || '<div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">No players yet.</p></div>'}`;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────
 function calcRoundScore(uid, rid) {
   if (rid === 'pt') {
@@ -4474,6 +4575,7 @@ function render() {
       case 'leaderboard': content = renderLeaderboard(); break;
       case 'results':     content = renderResults(); break;
       case 'history':     content = renderHistory(); break;
+      case 'ptpicks':     content = renderPtPicks(); break;
       case 'admin':       content = renderAdmin(); break;
       case 'rules':       content = renderRules(); break;
     }
@@ -4810,6 +4912,7 @@ function attachEvents() {
       });
       S.prizes = { currency, entries };
       localStorage.setItem('wc26:prizes', JSON.stringify(S.prizes));
+      savePrizes();
       if (prizeStatus) { prizeStatus.textContent = '✓ Saved'; setTimeout(() => { if(prizeStatus) prizeStatus.textContent = ''; }, 2000); }
     };
   }
@@ -4818,6 +4921,7 @@ function attachEvents() {
       const i = Number(btn.dataset.prizeDelete);
       S.prizes.entries.splice(i, 1);
       localStorage.setItem('wc26:prizes', JSON.stringify(S.prizes));
+      savePrizes();
       render();
     };
   });
