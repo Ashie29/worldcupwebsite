@@ -481,14 +481,14 @@ const GROUPS = {
 
 const ACHIEVEMENTS = {
   perfectRound: { icon:'⚡', label:'Perfect Round',   color:'#ff7043', desc:'Got every match pick correct in a single round' },
-  oracle:       { icon:'🔮', label:'Oracle',          color:'#ce93d8', desc:'Answered 3+ bonus questions correctly in a single round' },
-  sharpshooter: { icon:'🎯', label:'Sharpshooter',    color:'#42a5f5', desc:'Predicted 5+ exact scores in a round' },
+  oracle:       { icon:'🔮', label:'Oracle',          color:'#ce93d8', desc:'Correctly predicted the tournament winner before the tournament began' },
+  sharpshooter: { icon:'🎯', label:'Sharpshooter',    color:'#42a5f5', desc:'Predicted 5+ exact scores in a single round' },
   highRoller:   { icon:'💰', label:'High Roller',     color:'#66bb6a', desc:'Won a knockout wager at maximum stake' },
-  centuryClub:  { icon:'💯', label:'Century Club',    color:'#FFD700', desc:'Scored 50+ points total' },
-  bonusHunter:  { icon:'🎁', label:'Bonus Hunter',    color:'#ec407a', desc:'Answered every bonus question correctly in a round' },
-  scoreMaster:  { icon:'🔢', label:'Score Master',    color:'#26c6da', desc:'Predicted 3+ exact scores in a single match week' },
+  centuryClub:  { icon:'💯', label:'Century Club',    color:'#FFD700', desc:'Scored 100+ points total' },
+  bonusHunter:  { icon:'🎁', label:'Bonus Hunter',    color:'#ec407a', desc:'Answered every bonus question correctly in a single round' },
+  scoreMaster:  { icon:'🔢', label:'Score Master',    color:'#26c6da', desc:'Predicted 20+ exact scores across the whole tournament' },
   wagerKing:    { icon:'👑', label:'Wager King',      color:'#ab47bc', desc:'Earned 15+ points from wagers in a single round' },
-  contrarian:   { icon:'🦅', label:'Contrarian',      color:'#ff8f00', desc:'Picked the underdog (minority pick) and they won' },
+  contrarian:   { icon:'🦅', label:'Contrarian',      color:'#ff8f00', desc:'Picked the underdog (minority pick, under 35% of players) and they won' },
   comebackKid:  { icon:'🚀', label:'Comeback Kid',    color:'#00e5ff', desc:'Gained the most leaderboard positions in a single round' },
 };
 
@@ -677,6 +677,7 @@ const S = {
   customRules: null,  // string | null — stored in localStorage 'wc26:customRules'
   rulesEditing: false,
   manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
+  manualMatchUnlocks: {}, // mid → true — force-unlocked matches (overrides auto-lock), localStorage 'wc26:manualMatchUnlocks'
   prizes: { currency: 'CAD', entries: [] }, // { rank, amount } — localStorage 'wc26:prizes'
   colorScheme: 'gold', // localStorage 'wc26:colorScheme'
   registrationCutoff: null, // ISO date string — set by admin, stored in app_config
@@ -686,6 +687,8 @@ const S = {
   activityLogsLoaded: false,
   bonusProgress: {}, // rid → qid → {current, target} — live tracker for Over/Under bonus questions, admin-editable
   rankSnapshot: {}, // uid → total — leaderboard totals as of just before the most recent result/bonus edit, used for the +/- movement badge
+  activeMoveRound: null, // selected round in "Most Positions Gained" card
+  moveCardOpen: false,  // whether the Most Positions Gained card is expanded
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -759,6 +762,13 @@ function savePtSettings() {
 
 function saveLockSchedules() {
   localStorage.setItem('wc26:lockSchedules', JSON.stringify(S.lockSchedules));
+  // Also persist to Supabase so all players see the unlock countdown, not just the admin's device
+  sb.from('round_settings').upsert(
+    { round_id: '__schedules__', lock_schedules: JSON.stringify(S.lockSchedules) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('saveLockSchedules (DB) failed:', error.message);
+  });
 }
 
 function saveBonusLockOverrides() {
@@ -810,6 +820,8 @@ function loadLocalSettings() {
   try {
     const ml = localStorage.getItem('wc26:manualMatchLocks');
     if (ml) S.manualMatchLocks = JSON.parse(ml);
+    const mu = localStorage.getItem('wc26:manualMatchUnlocks');
+    if (mu) S.manualMatchUnlocks = JSON.parse(mu);
   } catch {}
   try {
     const pz = localStorage.getItem('wc26:prizes');
@@ -1070,6 +1082,18 @@ async function loadAllData() {
     } catch(e) {}
   }
 
+  // lock schedules (stored under '__schedules__' so all players see the unlock countdown)
+  const { data: schedCfg } = await sb.from('round_settings').select('lock_schedules').eq('round_id','__schedules__').single();
+  if (schedCfg?.lock_schedules) {
+    try {
+      const ls = JSON.parse(schedCfg.lock_schedules);
+      if (ls && typeof ls === 'object') S.lockSchedules = ls;
+    } catch(e) {}
+  } else if (Object.keys(S.lockSchedules).length) {
+    // Migrate schedules previously saved only to this admin's localStorage
+    saveLockSchedules();
+  }
+
   // prize configuration (stored in round_settings with special round_id '__prizes__')
   const { data: prizeCfg } = await sb.from('round_settings').select('prizes').eq('round_id','__prizes__').single();
   if (prizeCfg?.prizes) {
@@ -1212,6 +1236,8 @@ async function upsertResult(rid, mid, winner, sh, sa) {
   if (error) {
     console.error('upsertResult failed:', error);
     showAdminError(`❌ DB write failed: ${error.message} — Run the Supabase SQL fix (see scoring preview card).`);
+  } else {
+    autoCheckAchievements();
   }
 }
 
@@ -1241,6 +1267,7 @@ async function upsertBonusResult(rid, qid, answer) {
   );
   if (!S.bonusResults[rid]) S.bonusResults[rid] = {};
   S.bonusResults[rid][qid] = { answer };
+  autoCheckAchievements();
 }
 
 async function toggleLock(rid) {
@@ -1322,6 +1349,159 @@ async function removeAchievement(profileId, index) {
   const updated = (prof.achievements || []).filter((_, i) => i !== index);
   await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
   prof.achievements = updated;
+}
+
+// Auto-award achievements based on current data. Safe to run multiple times —
+// only awards what a player doesn't already have. Admin-only (writes profiles).
+async function autoCheckAchievements() {
+  if (!S.profile?.is_admin) return;
+  const players = S.profiles.filter(p => !p.is_admin);
+
+  for (const player of players) {
+    const uid = player.id;
+    const has = type => (player.achievements || []).some(a => a.type === type);
+    const award = async type => { if (!has(type)) await awardAchievement(uid, type); };
+
+    const { total, exactScores } = calcScore(uid);
+
+    // ── centuryClub: 100+ total points ────────────────────────────
+    if (total >= 100) await award('centuryClub');
+
+    // ── scoreMaster: 20+ exact scores across the whole tournament ──
+    if (exactScores >= 20) await award('scoreMaster');
+
+    // ── oracle: correctly predicted the tournament winner ──────────
+    const ptWinnerPick = S.bonusAnswers[uid]?.['pt']?.['pt_winner']?.answer;
+    const ptWinnerRes  = S.bonusResults['pt']?.['pt_winner']?.answer;
+    if (ptWinnerPick && ptWinnerRes && ptWinnerPick === ptWinnerRes) await award('oracle');
+
+    // ── Per-round checks ───────────────────────────────────────────
+    for (const round of Object.values(ROUNDS)) {
+      if (round.special === 'pretournament') continue;
+      const rid = round.id;
+      const matchesWithResults = round.matches.filter(m => S.results[rid]?.[m.id]?.winner);
+      if (!matchesWithResults.length) continue;
+      const allResultsIn = matchesWithResults.length === round.matches.length;
+      const picks = S.picks[uid]?.[rid] || {};
+
+      // perfectRound: every match pick correct (all results must be in)
+      if (!has('perfectRound') && allResultsIn && round.matches.length > 0) {
+        const allCorrect = round.matches.every(m => {
+          const pick = picks[m.id];
+          const res  = S.results[rid]?.[m.id];
+          return pick?.winner && res?.winner && pick.winner === res.winner;
+        });
+        if (allCorrect) await award('perfectRound');
+      }
+
+      // sharpshooter: 5+ exact scores in a single round
+      if (!has('sharpshooter')) {
+        let exactInRound = 0;
+        for (const m of round.matches) {
+          const pick = picks[m.id];
+          const res  = S.results[rid]?.[m.id];
+          if (pick && res?.winner && scoreLinePoints(pick, res).exact) exactInRound++;
+        }
+        if (exactInRound >= 5) await award('sharpshooter');
+      }
+
+      // bonusHunter: every bonus question answered correctly in a round (min 3 Qs)
+      if (!has('bonusHunter')) {
+        const bqs = getActiveQuestions(rid);
+        const answeredQs = bqs.filter(bq => S.bonusResults[rid]?.[bq.id]?.answer);
+        if (answeredQs.length >= 3) {
+          const allRight = answeredQs.every(bq =>
+            S.bonusAnswers[uid]?.[rid]?.[bq.id]?.answer === S.bonusResults[rid][bq.id].answer
+          );
+          if (allRight) await award('bonusHunter');
+        }
+      }
+
+      // wagerKing: 15+ pts from wagers in a single round
+      if (!has('wagerKing')) {
+        let wagerPts = 0;
+        for (const bq of getActiveQuestions(rid)) {
+          const isWagerable = bq.type === 'overunder' || bq.wager;
+          if (!isWagerable) continue;
+          const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
+          const correct = S.bonusResults[rid]?.[bq.id];
+          if (!ans?.answer || !correct?.answer || ans.answer === 'Abstain') continue;
+          if (ans.answer === correct.answer) {
+            wagerPts += bq.wager ? (Number(ans.wager) || 0) : bq.pts;
+          }
+        }
+        if (wagerPts >= 15) await award('wagerKing');
+      }
+
+      // highRoller: won a knockout O/U wager at max stake
+      if (!has('highRoller') && round.knockout) {
+        for (const bq of getActiveQuestions(rid)) {
+          if (bq.type !== 'overunder') continue;
+          const ans     = S.bonusAnswers[uid]?.[rid]?.[bq.id];
+          const correct = S.bonusResults[rid]?.[bq.id];
+          if (!ans?.answer || !correct?.answer || ans.answer === 'Abstain') continue;
+          const maxStake = bq.pts * 2;
+          if (Number(ans.wager) >= maxStake && ans.answer === correct.answer) {
+            await award('highRoller'); break;
+          }
+        }
+      }
+
+      // contrarian: picked the minority winner (<35% of players) and they were right
+      if (!has('contrarian') && allResultsIn) {
+        for (const m of matchesWithResults) {
+          const res    = S.results[rid]?.[m.id];
+          const myPick = picks[m.id]?.winner;
+          if (!myPick || myPick !== res?.winner) continue;
+          const counts = {};
+          players.forEach(p => {
+            const w = S.picks[p.id]?.[rid]?.[m.id]?.winner;
+            if (w) counts[w] = (counts[w] || 0) + 1;
+          });
+          const total = Object.values(counts).reduce((a, b) => a + b, 0);
+          if (total >= 3 && (counts[myPick] || 0) / total < 0.35) {
+            await award('contrarian'); break;
+          }
+        }
+      }
+    }
+
+    // ── comebackKid: gained the most positions of any player in any single round ──
+    if (!has('comebackKid')) {
+      const lb = getLeaderboard();
+      const curRank = lb.find(p => p.id === uid)?.rank;
+      if (curRank != null) {
+        for (const round of Object.values(ROUNDS)) {
+          if (round.special === 'pretournament') continue;
+          const rid = round.id;
+          if (!round.matches.some(m => S.results[rid]?.[m.id]?.winner)) continue;
+
+          // Rank everyone as if this round didn't happen
+          const prevSorted = players
+            .map(p => ({ id: p.id, prevTotal: (lb.find(x => x.id === p.id)?.total ?? 0) - calcRoundScore(p.id, rid) }))
+            .sort((a, b) => b.prevTotal - a.prevTotal);
+          const prevRankMap = {};
+          for (let i = 0; i < prevSorted.length; i++) {
+            prevRankMap[prevSorted[i].id] = i === 0 || prevSorted[i].prevTotal !== prevSorted[i-1].prevTotal
+              ? i + 1 : prevRankMap[prevSorted[i-1].id];
+          }
+
+          // Gain for each player in this round
+          const gains = players.map(p => {
+            const cur  = lb.find(x => x.id === p.id)?.rank ?? 999;
+            const prev = prevRankMap[p.id] ?? 999;
+            return { id: p.id, gain: prev - cur };
+          });
+          const maxGain = Math.max(...gains.map(g => g.gain));
+          const myGain  = gains.find(g => g.id === uid)?.gain ?? 0;
+          if (maxGain >= 10 && myGain === maxGain) {
+            await award('comebackKid'); break;
+          }
+        }
+      }
+    }
+  }
+  render();
 }
 
 function showPlayerModal(profile) {
@@ -1720,6 +1900,9 @@ function renderShell(content) {
     { id:'bracket', label:'Bracket' },
     { id:'rules', label:'Rules' },
   ];
+  // Preserve nav scroll position across re-renders so the tab bar doesn't jump
+  const _navScrollLeft = document.querySelector('.nav')?.scrollLeft || 0;
+
   document.getElementById('app').innerHTML = `
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
     <div class="sidebar" id="sidebar">
@@ -1803,6 +1986,10 @@ function renderShell(content) {
       </div>
     </nav>
     <div class="page${S.page==='dashboard'?' page-dashboard':''}">${pickReminderBanner()}${content}</div>`;
+
+  // Restore nav scroll position after innerHTML rebuild
+  const _navEl = document.querySelector('.nav');
+  if (_navEl && _navScrollLeft) _navEl.scrollLeft = _navScrollLeft;
 
   // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(btn => {
@@ -2061,6 +2248,7 @@ function renderPicks() {
 
   // ── Regular round render ───────────────────────────────────────
   const isMatchLocked = m => {
+    if (S.manualMatchUnlocks[m.id]) return false; // force-unlocked by admin
     if (locked) return true;
     if (S.manualMatchLocks[m.id]) return true;
     const ko = getKickoff(m.id, m.kickoff);
@@ -2147,14 +2335,35 @@ function renderPicks() {
 
     const guessClosed = `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--red);border:1px solid rgba(217,79,61,0.4);padding:3px 10px;white-space:nowrap">⛔ Guess Closed</span>`;
     const cdBadge = (isAdmin || isPinAdmin) ? '' : (isMatchLocked(m) ? guessClosed : matchCountdown(getKickoff(m.id, m.kickoff)));
-    const manualLocked = !!S.manualMatchLocks[m.id];
-    const adminLockBtn = (isAdmin || isPinAdmin) ? `<button
-      class="lock-badge ${manualLocked ? 'locked' : 'countdown'}"
-      data-action="toggle-match-lock" data-mid="${m.id}"
-      title="${manualLocked ? 'Manually locked — click to unlock' : 'Click to manually lock this match'}"
-      style="cursor:pointer;border:none;background:transparent;font-size:inherit;padding:3px 8px">
-      ${manualLocked ? '🔒 Locked' : '🔓 Unlock'}
-    </button>` : '';
+    const manualLocked   = !!S.manualMatchLocks[m.id];
+    const forceUnlocked  = !!S.manualMatchUnlocks[m.id];
+    const wouldAutoLock  = !manualLocked && !forceUnlocked && (() => {
+      if (locked) return true;
+      const ko = getKickoff(m.id, m.kickoff);
+      if (!ko) return false;
+      return Date.now() >= new Date(ko).getTime() - 3600000;
+    })();
+    const autoLocked = wouldAutoLock;
+    const adminLockBtn = (isAdmin || isPinAdmin) ? (() => {
+      const btnStyle = `cursor:pointer;border:1px solid;background:transparent;font-size:10px;font-family:var(--mono);letter-spacing:0.05em;padding:3px 9px;border-radius:0;white-space:nowrap;transition:opacity .15s`;
+      if (forceUnlocked) {
+        // Admin force-unlocked — show status + re-lock option
+        return `<span class="lock-badge open" style="font-size:10px;font-family:var(--mono);letter-spacing:0.05em;padding:3px 9px;white-space:nowrap;border:1px solid">🔓 Force-open</span>` +
+          `<button class="lock-badge locked" data-action="relock-match" data-mid="${m.id}" title="Remove force-unlock (reverts to auto-lock)"
+            style="${btnStyle};margin-left:4px" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">🔒 Re-lock</button>`;
+      } else if (autoLocked) {
+        // Auto-locked by time — show label + separate unlock button
+        return `<span class="lock-badge locked" style="font-size:10px;font-family:var(--mono);letter-spacing:0.05em;padding:3px 9px;white-space:nowrap;border:1px solid">⏱ Auto-locked</span>` +
+          `<button class="lock-badge open" data-action="force-unlock-match" data-mid="${m.id}" title="Force-unlock this match (overrides auto-lock)"
+            style="${btnStyle};margin-left:4px" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">🔓 Unlock</button>`;
+      } else if (manualLocked) {
+        return `<button class="lock-badge locked" data-action="toggle-match-lock" data-mid="${m.id}" title="Manually locked — click to unlock"
+          style="${btnStyle}" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">🔒 Locked</button>`;
+      } else {
+        return `<button class="lock-badge open" data-action="toggle-match-lock" data-mid="${m.id}" title="Click to manually lock this match"
+          style="${btnStyle}" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">🔓 Open</button>`;
+      }
+    })() : '';
 
     const hasPick = !!(winner || sh !== '' || sa !== '');
     const clearBtn = (!ro && hasPick) ? `<button class="btn btn-sm" data-action="clear-pick" data-rid="${rid}" data-mid="${m.id}"
@@ -2761,6 +2970,7 @@ function renderAdmin() {
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
               <div class="card-title" style="color:#66bb6a;margin:0">📊 Live Score Preview</div>
               <button class="btn btn-sm btn-outline" id="reload-data-btn" style="font-size:10px">🔄 Reload Data from Supabase</button>
+              <button class="btn btn-sm btn-outline" id="check-achievements-btn" style="font-size:10px">🏅 Check Achievements</button>
             </div>
             <p style="color:var(--muted);font-size:11px;margin-bottom:10px">
               Picks loaded: <strong style="color:${totalPickRecords===0?'#e88a80':'#66bb6a'}">${totalPickRecords} records across ${Object.keys(S.picks).length} player(s)</strong>
@@ -2868,6 +3078,25 @@ function renderAdmin() {
   if (adminTab === 'picks') {
     const rid    = S.adminTabRounds['picks'] || S.activeRound;
     const round  = ROUNDS[rid] || ROUNDS[S.activeRound];
+    const nowPicks = Date.now();
+    // Returns true if a missing pick for this match should be flagged red (within 2hrs of lock = 3hrs before kickoff)
+    const matchWarnMissing = m => {
+      const ko = getKickoff(m.id, m.kickoff);
+      if (!ko) return false;
+      const lockTime = new Date(ko).getTime() - 3600000; // 1hr before kickoff
+      return nowPicks >= lockTime - 7200000; // warn 2hrs before lock
+    };
+    // Returns true if missing bonus answer should be flagged (within 2hrs of bonus lock)
+    const bonusWarnMissing = () => {
+      const roundKickoffs = round.matches
+        .map(m => getKickoff(m.id, m.kickoff)).filter(Boolean)
+        .map(k => new Date(k).getTime()).sort((a,b) => a-b);
+      const firstKickoff = roundKickoffs[0] || null;
+      const override = S.bonusLockOverrides[rid];
+      const lockAt = override ? new Date(override).getTime() : (firstKickoff ? firstKickoff - 3600000 : null);
+      if (!lockAt) return false;
+      return nowPicks >= lockAt - 7200000;
+    };
 
     const pillsHtml = Object.values(ROUNDS).map(r =>
       `<button class="pill ${S.activeRound===r.id?'active':''}" data-r="${r.id}">${roundLabel(r)}</button>`
@@ -2934,26 +3163,51 @@ function renderAdmin() {
               const pick   = S.picks[player.id]?.[rid]?.[m.id] || {};
               const result = S.results[rid]?.[m.id] || {};
               const hasRes = !!result.winner;
-              const icon   = !pick.winner ? '' : !hasRes ? '⏳' : pick.winner === result.winner ? '✅' : '❌';
-              const score  = pick.winner && pick.score_home !== '' && pick.score_home !== undefined
-                ? ` (${pick.score_home}–${pick.score_away})` : '';
+              const correct = hasRes && pick.winner && pick.winner === result.winner;
+              const icon   = !pick.winner ? '' : !hasRes ? '⏳' : correct ? '✅' : '❌';
+              const hasSc  = pick.score_home !== '' && pick.score_home !== undefined && pick.score_away !== '' && pick.score_away !== undefined;
+              const slp    = hasRes && hasSc ? scoreLinePoints({ score_home: pick.score_home, score_away: pick.score_away }, result) : { pts: 0, exact: false };
+              const scoreEmoji = slp.exact ? ' 🎯' : '';
+              const score  = hasSc ? ` (${pick.score_home}–${pick.score_away}${scoreEmoji})` : '';
               const matchLabel = m.label ? ` <span style="font-size:10px;color:#ff7043">[${m.label}]</span>` : '';
-              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+              const ko = getKickoff(m.id, m.kickoff);
+              const koTime = ko ? new Date(ko).getTime() : null;
+              const matchLocked = hasRes || !!(koTime && nowPicks >= koTime - 3600000);
+              const missingPick = !pick.winner;
+              const missingWarn = missingPick && !matchLocked && !!(koTime && nowPicks >= koTime - 3 * 3600000);
+              const missingLate = missingPick && matchLocked;
+              const rowBg = missingLate ? 'background:rgba(239,83,80,0.08);' : missingWarn ? 'background:rgba(255,183,77,0.08);' : '';
+              const missingColor = missingLate ? '#ef5350' : missingWarn ? '#ffb74d' : 'var(--faint)';
+              const missingLabel = missingLate ? '✗ no pick' : missingWarn ? '⚠ no pick — closing soon' : '— no pick —';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${rowBg}
                 border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
                 <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
-                <span style="color:${pick.winner?'var(--text)':'var(--faint)'}">
-                  ${pick.winner ? `${pick.winner}${score} ${icon}` : '— no pick —'}
+                <span style="color:${pick.winner ? 'var(--text)' : missingColor}">
+                  ${pick.winner ? `${pick.winner}${score} ${icon}` : missingLabel}
                 </span>
               </div>`;
             }).join('');
+            const bonusAlreadyLocked = isBonusLocked(rid);
+            const bonusWarn = bonusWarnMissing();
             const bonusRows = getActiveQuestions(rid).map(bq => {
               const ans     = S.bonusAnswers[player.id]?.[rid]?.[bq.id] || {};
               const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
               const icon = !ans.answer ? '' : !correct ? '⏳' : ans.answer === correct ? '✅' : '❌';
-              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+              const missingBonus = !ans.answer;
+              const bonusRowBg = missingBonus && bonusWarn && !bonusAlreadyLocked ? 'background:rgba(255,183,77,0.08);'
+                               : missingBonus && bonusAlreadyLocked ? 'background:rgba(239,83,80,0.08);' : '';
+              const ansColor = ans.answer ? 'var(--gold)'
+                             : (missingBonus && bonusAlreadyLocked) ? '#ef5350'
+                             : (missingBonus && bonusWarn) ? '#ffb74d'
+                             : 'var(--faint)';
+              const ansLabel = ans.answer ? `${ans.answer} ${icon}`
+                             : (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
+                             : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon'
+                             : '—';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${bonusRowBg}
                 border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
                 <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
-                <span style="color:${ans.answer?'var(--gold)':'var(--faint)'};flex-shrink:0">${ans.answer || '—'} ${icon}</span>
+                <span style="color:${ansColor};flex-shrink:0">${ansLabel}</span>
               </div>`;
             }).join('');
             picksContent = matchRows +
@@ -3364,7 +3618,7 @@ function renderHistory() {
       return `<tr style="border-bottom:1px solid var(--border2)">
         <td style="padding:6px 8px;color:var(--text);font-size:12px">${name}</td>
         <td style="padding:6px 8px;color:${pickCol};font-size:12px;font-weight:${correct?'700':'400'}">${wp?`${F(wp)} ${wp}`:'<span style="color:var(--faint)">—</span>'}</td>
-        <td style="padding:6px 8px;text-align:center;color:${scoreCol};font-family:var(--mono);font-size:12px">${hasSc?`${sh} – ${sa}${exactScore?' 🎯':''}`:'<span style="color:var(--faint)">—</span>'}</td>
+        <td style="padding:6px 8px;text-align:center;color:${scoreCol};font-family:var(--mono);font-size:12px">${hasSc?`${sh} – ${sa}${exactScore?(correct?' ✓ 🎯':' 🎯'):''}`:'<span style="color:var(--faint)">—</span>'}</td>
         <td style="padding:6px 8px;text-align:right;font-size:11px;font-family:var(--mono)">${pts}</td>
       </tr>`;
     }).join('');
@@ -3597,18 +3851,26 @@ function renderGroups() {
   const standings = computeGroupStandings();
   const anyResults = Object.values(standings).some(g => g.some(t => t.played > 0));
 
+  // Identify the best 8 third-place teams (by pts → gd → gf) — they also advance in WC2026
+  const thirdPlaceTeams = Object.values(standings)
+    .map(teams => teams[2])
+    .filter(t => t && t.played > 0)
+    .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+  const best8Third = new Set(thirdPlaceTeams.slice(0, 8).map(t => t.team));
+
   const groupCards = Object.entries(standings).map(([g, teams]) => {
     const hasData = teams.some(t => t.played > 0);
     const rows = teams.map((t, i) => {
-      const qualColor = i === 0 ? '#66bb6a' : i === 1 ? '#90caf9' : 'var(--muted)';
+      const isQualified3rd = i === 2 && best8Third.has(t.team);
+      const qualColor = i === 0 ? '#66bb6a' : i === 1 ? '#90caf9' : isQualified3rd ? '#ffb74d' : 'var(--muted)';
       const bar = hasData && teams[0].pts > 0
         ? Math.round((t.pts / (teams[0].pts || 1)) * 100) : 0;
       return `<tr style="border-bottom:1px solid var(--border2)">
         <td style="padding:7px 8px;width:20px">
           <span style="display:inline-block;width:6px;height:6px;border-radius:50%;
-            background:${i<2?qualColor:'var(--faint)'};flex-shrink:0"></span>
+            background:${i<2?qualColor:isQualified3rd?qualColor:'var(--faint)'};flex-shrink:0"></span>
         </td>
-        <td style="padding:7px 8px;color:${i<2?'var(--text)':'var(--muted)'};white-space:nowrap">
+        <td style="padding:7px 8px;color:${i<2||isQualified3rd?'var(--text)':'var(--muted)'};white-space:nowrap">
           ${F(t.team)} ${t.team}
         </td>
         <td style="padding:7px 6px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px">${t.played}</td>
@@ -3646,8 +3908,9 @@ function renderGroups() {
     <div class="page-title">🌍 Group Standings</div>
     <p style="color:var(--muted);font-size:12px;margin-bottom:4px">
       Live standings based on results entered so far.
-      <span style="color:var(--gold)">●</span> 1st
-      <span style="color:#90caf9">●</span> 2nd advance · Updates automatically as results are entered.
+      <span style="color:#66bb6a">●</span> 1st &nbsp;
+      <span style="color:#90caf9">●</span> 2nd &nbsp;
+      <span style="color:#ffb74d">●</span> Best 3rd (top 8) advance · Updates automatically as results are entered.
     </p>
     ${!anyResults ? `<div class="notice" style="margin-bottom:16px">No group stage results have been entered yet.</div>` : '<div style="margin-bottom:16px"></div>'}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:8px">
@@ -4136,6 +4399,83 @@ function renderDashboard() {
 
   const bonusTrackersHtml = renderBonusTrackers();
 
+  // ── Most Positions Gained card ────────────────────────────────────
+  const moveCardHtml = (() => {
+    // Skip round 1 — everyone starts tied at rank 1, so position gains are meaningless
+    const moveRounds = playedRounds.slice(1);
+    if (!moveRounds.length) return '';
+    if (!S.activeMoveRound || !ROUNDS[S.activeMoveRound] || !moveRounds.find(r => r.id === S.activeMoveRound)) {
+      S.activeMoveRound = moveRounds[moveRounds.length - 1].id;
+    }
+    const players = S.profiles.filter(p => !p.is_admin);
+
+    // Build per-round position gains for each player
+    const roundGains = (rid) => {
+      // Points before this round = total - this round's pts
+      const prevTotals = players.map(p => ({ p, prev: calcScore(p.id).total - calcRoundScore(p.id, rid) }));
+      const currTotals = players.map(p => ({ p, curr: calcScore(p.id).total }));
+      prevTotals.sort((a, b) => b.prev - a.prev);
+      currTotals.sort((a, b) => b.curr - a.curr);
+      const prevRank = {}, currRank = {};
+      prevTotals.forEach((x, i) => { prevRank[x.p.id] = i + 1; });
+      currTotals.forEach((x, i) => { currRank[x.p.id] = i + 1; });
+      return players.map(p => ({
+        p,
+        gain: prevRank[p.id] - currRank[p.id], // positive = moved up
+        prev: prevRank[p.id],
+        curr: currRank[p.id],
+        roundPts: calcRoundScore(p.id, rid),
+      })).sort((a, b) => b.gain - a.gain || b.roundPts - a.roundPts);
+    };
+
+    const pills = moveRounds.map(r => {
+      const active = r.id === S.activeMoveRound;
+      const short = r.label.replace('Group Stage – ', '').replace('Matchday ', 'MD');
+      return `<button class="pill${active ? ' active' : ''}" data-action="move-round-pill" data-rid="${r.id}" style="font-size:11px;padding:4px 10px">${short}</button>`;
+    }).join('');
+
+    const gains = roundGains(S.activeMoveRound);
+    const getName = p => p?.nickname || p?.name || '—';
+    const rows = gains.map((g, i) => {
+      const gainStr = g.gain > 0 ? `<span style="color:#66bb6a;font-weight:700">▲${g.gain}</span>`
+                    : g.gain < 0 ? `<span style="color:#ef5350;font-weight:700">▼${Math.abs(g.gain)}</span>`
+                    : `<span style="color:var(--muted)">—</span>`;
+      const bg = i === 0 && g.gain > 0 ? 'background:rgba(102,187,106,0.08);' : '';
+      const crown = i === 0 && g.gain > 0 ? ' 🚀' : '';
+      return `<tr style="${bg}">
+        <td style="padding:6px 8px;color:var(--muted);font-family:var(--mono);font-size:12px">#${g.curr}</td>
+        <td style="padding:6px 8px;font-size:13px">${getName(g.p)}${crown}</td>
+        <td style="padding:6px 8px;text-align:center;font-family:var(--mono)">${gainStr}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${g.prev}→${g.curr}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;color:#66bb6a">+${g.roundPts}</td>
+      </tr>`;
+    }).join('');
+
+    const open = S.moveCardOpen;
+    return `<div class="card" style="margin-bottom:16px">
+      <div data-action="toggle-move-card" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
+        <div class="card-title" style="margin-bottom:0">🚀 Most Positions Gained</div>
+        <span style="font-size:12px;color:var(--muted);font-family:var(--mono)">${open ? '▲' : '▼'}</span>
+      </div>
+      ${open ? `
+      <div style="margin-top:12px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${pills}</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--border)">
+              <th style="padding:4px 8px;text-align:left;font-size:11px;color:var(--muted);font-weight:600">Rank</th>
+              <th style="padding:4px 8px;text-align:left;font-size:11px;color:var(--muted);font-weight:600">Player</th>
+              <th style="padding:4px 8px;text-align:center;font-size:11px;color:var(--muted);font-weight:600">Move</th>
+              <th style="padding:4px 8px;text-align:right;font-size:11px;color:var(--muted);font-weight:600">Pos</th>
+              <th style="padding:4px 8px;text-align:right;font-size:11px;color:var(--muted);font-weight:600">Pts</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>` : ''}
+    </div>`;
+  })();
+
   return `
     <div class="page-title">Dashboard</div>
     ${noticeBoardHtml}
@@ -4153,6 +4493,7 @@ function renderDashboard() {
               exactKing ? `${exactKingN} exact scores` : '')}
           ${nextMatchCard}
         </div>
+        ${moveCardHtml}
         ${roundsTableHtml}
       </div>
       ${bonusTrackersHtml ? `<div class="dashboard-side">${bonusTrackersHtml}</div>` : ''}
@@ -4587,6 +4928,14 @@ function render() {
 }
 
 function attachEvents() {
+  // Most Positions Gained toggle + round pill
+  const moveCardEl = document.querySelector('[data-action="toggle-move-card"]');
+  if (moveCardEl) moveCardEl.onclick = () => { S.moveCardOpen = !S.moveCardOpen; render(); };
+
+  document.querySelectorAll('[data-action="move-round-pill"]').forEach(btn => {
+    btn.onclick = () => { S.activeMoveRound = btn.dataset.rid; render(); };
+  });
+
   // Round pill selectors
   document.querySelectorAll('[data-r]').forEach(btn => {
     btn.onclick = () => {
@@ -4682,6 +5031,26 @@ function attachEvents() {
         S.manualMatchLocks[mid] = true;
       }
       localStorage.setItem('wc26:manualMatchLocks', JSON.stringify(S.manualMatchLocks));
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-action="force-unlock-match"]').forEach(btn => {
+    btn.onclick = () => {
+      const mid = btn.dataset.mid;
+      S.manualMatchUnlocks[mid] = true;
+      delete S.manualMatchLocks[mid];
+      localStorage.setItem('wc26:manualMatchUnlocks', JSON.stringify(S.manualMatchUnlocks));
+      localStorage.setItem('wc26:manualMatchLocks', JSON.stringify(S.manualMatchLocks));
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-action="relock-match"]').forEach(btn => {
+    btn.onclick = () => {
+      const mid = btn.dataset.mid;
+      delete S.manualMatchUnlocks[mid];
+      localStorage.setItem('wc26:manualMatchUnlocks', JSON.stringify(S.manualMatchUnlocks));
       render();
     };
   });
@@ -4805,7 +5174,7 @@ function attachEvents() {
         // Re-upsert all current picks for this round as a confirmation
         const roundPicks = S.picks[uid]?.[rid] || {};
         for (const [mid, pick] of Object.entries(roundPicks)) {
-          await upsertPick(rid, mid, pick.winner||'', pick.score_home||'', pick.score_away||'');
+          await upsertPick(rid, mid, pick.winner||'', pick.score_home??'', pick.score_away??'');
         }
         msgEl.style.color = '#66bb6a';
         msgEl.textContent = '✅ Picks saved!';
@@ -4954,7 +5323,7 @@ function attachEvents() {
     btn.onclick = () => {
       const { rid, mid, team } = btn.dataset;
       const pick = S.picks[S.user.id]?.[rid]?.[mid] || {};
-      upsertPick(rid, mid, team, pick.score_home||'', pick.score_away||'');
+      upsertPick(rid, mid, team, pick.score_home??'', pick.score_away??'');
       render();
     };
   });
@@ -4964,8 +5333,8 @@ function attachEvents() {
     inp.onblur = () => {
       const { rid, mid, side } = inp.dataset;
       const pick = S.picks[S.user.id]?.[rid]?.[mid] || {};
-      const sh = side==='h' ? inp.value : pick.score_home || '';
-      const sa = side==='a' ? inp.value : pick.score_away || '';
+      const sh = side==='h' ? inp.value : pick.score_home ?? '';
+      const sa = side==='a' ? inp.value : pick.score_away ?? '';
       upsertPick(rid, mid, pick.winner||'', sh, sa);
       // Note: intentionally no render() here — calling render() on blur destroys the DOM
       // mid-click on desktop browsers, causing team button clicks to be swallowed.
@@ -5250,6 +5619,18 @@ function attachEvents() {
     };
   }
 
+  const checkAchBtn = document.getElementById('check-achievements-btn');
+  if (checkAchBtn) {
+    checkAchBtn.onclick = async () => {
+      checkAchBtn.disabled = true;
+      checkAchBtn.textContent = '⏳ Checking…';
+      await autoCheckAchievements();
+      checkAchBtn.disabled = false;
+      checkAchBtn.textContent = '✅ Done';
+      setTimeout(() => { if (checkAchBtn) checkAchBtn.textContent = '🏅 Check Achievements'; }, 2000);
+    };
+  }
+
   // Admin: save pre-tournament winner pts
   const savePtWinnerPtsBtn = document.getElementById('save-pt-winner-pts-btn');
   if (savePtWinnerPtsBtn) {
@@ -5515,13 +5896,15 @@ async function init() {
     if (event === 'SIGNED_IN' && session?.user) {
       const isNewLogin = !S.user; // only navigate on a genuine new login, not token refresh
       S.user = session.user;
+      // Token refreshes also fire SIGNED_IN — skip reload/render to avoid wiping typed text
+      if (!isNewLogin) return;
       const { data: profile } = await sb.from('profiles').select('*').eq('id', S.user.id).single();
       if (session.user.email === 'admin@vermanipool.internal') {
         S.profile = { ...(profile || {}), is_admin: true, name: 'Admin', nickname: 'Admin' };
-        if (isNewLogin) S.page = 'admin';
+        S.page = 'admin';
       } else {
         S.profile = profile;
-        if (isNewLogin) S.page = 'dashboard';
+        S.page = 'dashboard';
       }
       await loadAllData();
       render();
