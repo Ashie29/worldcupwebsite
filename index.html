@@ -2518,15 +2518,31 @@ function renderLeaderboard() {
     return `<span style="font-size:10px;color:#ef5350;font-family:var(--mono);font-weight:700;width:28px;text-align:center">▼${Math.abs(diff)}</span>`;
   };
 
-  // Build prize lookup: rank → amount
+  // Build prize lookup: rank → amount, with tie-splitting
   const prizeMap = {};
   const pzCurrency = S.prizes?.currency || 'CAD';
-  (S.prizes?.entries || []).forEach(e => { if (e.rank) prizeMap[Number(e.rank)] = e.amount; });
+  (S.prizes?.entries || []).forEach(e => { if (e.rank) prizeMap[Number(e.rank)] = Number(e.amount); });
+
+  // For each leaderboard player, compute their split prize
+  // Tied players share the sum of all prize positions they span
+  const splitPrize = (rank) => {
+    // Find how many players share this rank
+    const tied = lb.filter(p => p.rank === rank);
+    if (!tied.length) return null;
+    if (tied.length === 1) return prizeMap[rank] ?? null;
+    // Sum prizes for positions rank through rank+tied.length-1
+    let total = 0, hasPrize = false;
+    for (let r = rank; r < rank + tied.length; r++) {
+      if (prizeMap[r] != null) { total += prizeMap[r]; hasPrize = true; }
+    }
+    return hasPrize ? total / tied.length : null;
+  };
 
   const rows = lb.map((p,i) => {
     const barW = Math.round((p.total/maxPts)*100);
     const isMe = p.id === meId;
-    const prize = prizeMap[p.rank];
+    const prize = splitPrize(p.rank);
+    const tied = lb.filter(x => x.rank === p.rank).length > 1;
     const prizeMeta = p.rank === 1
       ? { bg:'var(--gold)',        color:'#1a1a1a', shadow:'rgba(232,213,163,0.4)' }
       : p.rank === 2
@@ -2534,11 +2550,17 @@ function renderLeaderboard() {
       : p.rank === 3
       ? { bg:'#a0714f',           color:'#fff',    shadow:'rgba(160,113,79,0.4)'  }
       :   { bg:'rgba(255,255,255,0.1)', color:'var(--muted)', shadow:'none' };
-    const prizeBadge = prize
+    // Format prize: trim unnecessary decimals (show .5 but not .0)
+    const fmtPrize = prize == null ? null
+      : Number.isInteger(prize) ? prize.toString()
+      : prize % 1 === 0.5 ? prize.toFixed(1)
+      : prize.toFixed(2).replace(/\.?0+$/, '');
+    const prizeBadge = prize != null
       ? `<span style="font-family:var(--mono);font-size:10px;letter-spacing:.08em;
           color:${prizeMeta.color};background:${prizeMeta.bg};padding:3px 9px;white-space:nowrap;
-          font-weight:700;box-shadow:0 0 10px ${prizeMeta.shadow}">
-          ${pzCurrency} ${prize}
+          font-weight:700;box-shadow:0 0 10px ${prizeMeta.shadow}"
+          title="${tied ? 'Split prize (tie)' : ''}">
+          ${pzCurrency} ${fmtPrize}${tied ? ` <span style="font-size:9px;opacity:.7">÷${lb.filter(x=>x.rank===p.rank).length}</span>` : ''}
          </span>` : '';
     return `<tr class="${i===0?'gold-row':''} ${isMe?'me-row':''}" data-uid="${p.id}" style="cursor:pointer${isMe?';outline:1px solid rgba(232,213,163,0.35)':''}">
       <td><span class="rank-icon">${medal(p.rank)}</span></td>
