@@ -1031,13 +1031,18 @@ async function loadAllData() {
   const { data: profiles } = await sb.from('profiles').select('*');
   S.profiles = profiles || [];
 
-  // picks — limit raised to avoid Supabase's default 1000-row cap silently truncating results
-  const { data: picks } = await sb.from('picks').select('*').limit(10000);
+  // picks — fetch per round to stay under Supabase's 1000-row server cap
   S.picks = {};
-  for (const p of (picks || [])) {
-    if (!S.picks[p.user_id]) S.picks[p.user_id] = {};
-    if (!S.picks[p.user_id][p.round_id]) S.picks[p.user_id][p.round_id] = {};
-    S.picks[p.user_id][p.round_id][p.match_id] = { winner: p.winner, score_home: p.score_home, score_away: p.score_away };
+  const roundIds = Object.keys(ROUNDS);
+  const pickResults = await Promise.all(
+    roundIds.map(rid => sb.from('picks').select('*').eq('round_id', rid))
+  );
+  for (const { data } of pickResults) {
+    for (const p of (data || [])) {
+      if (!S.picks[p.user_id]) S.picks[p.user_id] = {};
+      if (!S.picks[p.user_id][p.round_id]) S.picks[p.user_id][p.round_id] = {};
+      S.picks[p.user_id][p.round_id][p.match_id] = { winner: p.winner, score_home: p.score_home, score_away: p.score_away };
+    }
   }
 
   // bonus answers
