@@ -1353,7 +1353,8 @@ async function awardAchievement(profileId, type) {
   if (!prof) return;
   const existing = prof.achievements || [];
   const updated  = [...existing, { type, awardedAt: new Date().toISOString() }];
-  await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  const { error } = await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  if (error) { console.error('awardAchievement failed:', error.message); return; }
   prof.achievements = updated;
 }
 
@@ -1361,7 +1362,8 @@ async function removeAchievement(profileId, index) {
   const prof = S.profiles.find(p => p.id === profileId);
   if (!prof) return;
   const updated = (prof.achievements || []).filter((_, i) => i !== index);
-  await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  const { error } = await sb.from('profiles').update({ achievements: updated }).eq('id', profileId);
+  if (error) { console.error('removeAchievement failed:', error.message); return; }
   prof.achievements = updated;
 }
 
