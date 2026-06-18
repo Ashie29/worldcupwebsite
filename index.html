@@ -4318,14 +4318,17 @@ function renderBonusTrackers() {
 
   const items = [];
   rounds.forEach(round => {
-    if (!isBonusLocked(round.id)) return;
+    const locked = isBonusLocked(round.id);
+    // Non-admins only see locked rounds; admins can configure any round with questions
+    if (!locked && !isAdminUser) return;
     getActiveQuestions(round.id).forEach(bq => {
       const resolved = !!S.bonusResults[round.id]?.[bq.id]?.answer;
       if (resolved) return;
       const prog = S.bonusProgress[round.id]?.[bq.id] || {};
       const enabled = !!prog.enabled;
-      if (!isAdminUser && !enabled) return;
-      items.push({ round, bq, prog, enabled, isOU: bq.type === 'overunder' });
+      // Non-admins only see enabled trackers for locked rounds
+      if (!isAdminUser && (!locked || !enabled)) return;
+      items.push({ round, bq, prog, enabled, isOU: bq.type === 'overunder', locked });
     });
   });
 
