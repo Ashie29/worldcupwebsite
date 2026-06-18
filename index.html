@@ -1031,8 +1031,8 @@ async function loadAllData() {
   const { data: profiles } = await sb.from('profiles').select('*');
   S.profiles = profiles || [];
 
-  // picks (admin sees all, others see own + locked rounds via RLS)
-  const { data: picks } = await sb.from('picks').select('*');
+  // picks — limit raised to avoid Supabase's default 1000-row cap silently truncating results
+  const { data: picks } = await sb.from('picks').select('*').limit(10000);
   S.picks = {};
   for (const p of (picks || [])) {
     if (!S.picks[p.user_id]) S.picks[p.user_id] = {};
