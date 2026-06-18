@@ -703,6 +703,7 @@ const S = {
   rankSnapshot: {}, // uid → total — leaderboard totals as of just before the most recent result/bonus edit, used for the +/- movement badge
   activeMoveRound: null, // selected round in "Most Positions Gained" card
   moveCardOpen: false,  // whether the Most Positions Gained card is expanded
+  bonusRecapOpen: {},   // rid → bool — whether the bonus recap card is expanded on dashboard
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -754,6 +755,7 @@ function saveCustomQuestions() {
 
 function saveBonusProgress(rid) {
   const bp = S.bonusProgress[rid] || {};
+  localStorage.setItem('wc26:bonusProgress', JSON.stringify(S.bonusProgress));
   sb.from('round_settings').upsert(
     { round_id: rid, bonus_progress: JSON.stringify(bp) },
     { onConflict: 'round_id' }
@@ -840,6 +842,10 @@ function loadLocalSettings() {
   try {
     const pz = localStorage.getItem('wc26:prizes');
     if (pz) S.prizes = JSON.parse(pz);
+  } catch {}
+  try {
+    const bp = localStorage.getItem('wc26:bonusProgress');
+    if (bp) S.bonusProgress = JSON.parse(bp);
   } catch {}
   try {
     const cs = localStorage.getItem('wc26:colorScheme');
@@ -3764,11 +3770,25 @@ function renderHistory() {
       </div>`;
     }).join('');
 
+    const bonusRecapHtml = renderBonusRecap(round.id, { compact: true });
+    const bonusSection = bonusRecapHtml ? (() => {
+      const uid = `bonus-recap-hist-${round.id}`;
+      return `<div style="border-top:1px solid var(--border2)">
+        <div onclick="var d=document.getElementById('${uid}');var a=document.getElementById('${uid}-arr');if(d.style.display==='none'){d.style.display='block';a.textContent='▲';}else{d.style.display='none';a.textContent='▼';}"
+          style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none">
+          <span style="font-size:11px;font-family:var(--mono);letter-spacing:0.08em;color:var(--gold)">🎯 BONUS RESULTS</span>
+          <span id="${uid}-arr" style="color:var(--muted);font-size:11px">▼</span>
+        </div>
+        <div id="${uid}" style="display:none;padding:0 16px 14px">${bonusRecapHtml}</div>
+      </div>`;
+    })() : '';
+
     return `<div class="card" style="padding:0;margin-bottom:12px">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border2)">
         <div class="card-title" style="margin:0">${round.label}</div>
       </div>
       ${matchRows}
+      ${bonusSection}
     </div>`;
   }).join('');
 
@@ -4215,6 +4235,82 @@ function renderLiveMatches() {
   return liveSection + prevSection;
 }
 
+// ── Bonus Question Recap ────────────────────────────────────────────
+// Returns HTML for a single round's bonus results recap (all questions + everyone's answers).
+// Used both in the dashboard inter-round card and in Match History.
+function renderBonusRecap(rid, opts = {}) {
+  const { compact = false } = opts;
+  const round = ROUNDS[rid];
+  if (!round) return '';
+  const questions = getActiveQuestions(rid);
+  const answeredQs = questions.filter(bq => S.bonusResults[rid]?.[bq.id]?.answer);
+  if (!answeredQs.length) return '';
+
+  const players = S.profiles.filter(p => !p.is_admin);
+  const { bonus: bMult } = getMultipliers(rid);
+
+  const qBlocks = answeredQs.map(bq => {
+    const correctAnswer = S.bonusResults[rid][bq.id].answer;
+    const isOU  = bq.type === 'overunder';
+    const hasWager = bq.wager === true;
+
+    const rows = players.map(p => {
+      const ua   = S.bonusAnswers[p.id]?.[rid]?.[bq.id];
+      const name = p.nickname || p.name || '—';
+      if (!ua?.answer) {
+        return `<tr>
+          <td style="padding:5px 8px;font-size:12px;color:var(--text)">${name}</td>
+          <td style="padding:5px 8px;font-size:12px;color:var(--faint);font-style:italic" colspan="2">No answer</td>
+        </tr>`;
+      }
+      const ans = ua.answer;
+      const stake = hasWager ? (Number(ua.wager) || 0) : (bq.pts * bMult);
+      let pts = 0, correct = false;
+      if (isOU) {
+        if (ans === 'Abstain') { pts = 0; correct = false; }
+        else if (ans === correctAnswer) { pts = stake; correct = true; }
+        else { pts = -stake; correct = false; }
+      } else {
+        correct = ans === correctAnswer;
+        pts = correct ? stake : 0;
+      }
+      const ptsStr = pts > 0
+        ? `<span style="color:#66bb6a;font-family:var(--mono);font-weight:700">+${pts}</span>`
+        : pts < 0
+          ? `<span style="color:#ef5350;font-family:var(--mono);font-weight:700">${pts}</span>`
+          : `<span style="color:var(--faint);font-family:var(--mono)">0</span>`;
+      const ansColor = correct ? '#66bb6a' : isOU && ans === 'Abstain' ? 'var(--muted)' : '#ef5350';
+      const wagerNote = hasWager && ua.wager ? `<span style="font-size:9px;color:var(--muted);font-family:var(--mono)"> (w:${ua.wager})</span>` : '';
+      return `<tr style="border-top:1px solid var(--border2)">
+        <td style="padding:5px 8px;font-size:12px;color:var(--text)">${name}</td>
+        <td style="padding:5px 8px;font-size:12px;color:${ansColor};font-weight:${correct?'700':'400'}">${ans}${wagerNote}</td>
+        <td style="padding:5px 8px;text-align:right">${ptsStr}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div style="margin-bottom:${compact?'10':'14'}px">
+      <div style="font-size:12px;color:var(--text);line-height:1.4;margin-bottom:5px">${bq.text}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:9px;letter-spacing:0.08em;color:var(--muted);font-family:var(--mono)">ANSWER</span>
+        <span style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--display)">${correctAnswer}</span>
+        <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${bq.pts} pts${hasWager?' (wager)':''}</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PLAYER</th>
+            <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">ANSWER</th>
+            <th style="padding:4px 8px;text-align:right;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PTS</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  return qBlocks.join(`<div style="border-top:1px solid var(--border2);margin:${compact?'10':'14'}px 0"></div>`);
+}
+
 // ── Live Bonus Trackers (admin-configurable progress for any bonus question) ──
 function renderBonusTrackers() {
   const isAdminUser = !!S.profile?.is_admin;
@@ -4570,6 +4666,48 @@ function renderDashboard() {
     </div>`;
   })();
 
+  // ── Bonus Recap cards (shown during inter-round gap) ─────────────
+  const bonusRecapCardsHtml = (() => {
+    const now = Date.now();
+    const roundIds = Object.keys(ROUNDS).filter(r => ROUNDS[r].special !== 'pretournament');
+    const cards = [];
+    for (let i = 0; i < roundIds.length; i++) {
+      const rid = roundIds[i];
+      const round = ROUNDS[rid];
+      // Must have bonus results to show recap
+      if (!Object.keys(S.bonusResults[rid] || {}).length) continue;
+      // All matches in this round must have kicked off (round is fully done)
+      const allDone = round.matches.every(m => {
+        const ko = getKickoff(m.id, m.kickoff);
+        return ko && now >= new Date(ko).getTime() - 3600000;
+      });
+      if (!allDone) continue;
+      // Next round's first match must NOT have kicked off yet (we're in the gap)
+      const nextRid = roundIds[i + 1];
+      if (nextRid) {
+        const nextRound = ROUNDS[nextRid];
+        const firstM = nextRound?.matches[0];
+        const nextKo = firstM ? getKickoff(firstM.id, firstM.kickoff) : null;
+        if (nextKo && now >= new Date(nextKo).getTime() - 3600000) continue; // next round started
+      }
+      const recapBody = renderBonusRecap(rid);
+      if (!recapBody) continue;
+      const open = S.bonusRecapOpen[rid] !== false; // default open
+      cards.push(`<div class="card" style="margin-bottom:16px;border-color:rgba(232,213,163,0.3)">
+        <div data-action="toggle-bonus-recap" data-rid="${rid}"
+          style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
+          <div>
+            <div class="card-title" style="margin-bottom:2px">🎯 Bonus Recap</div>
+            <div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:0.06em">${round.label.toUpperCase()}</div>
+          </div>
+          <span style="font-size:12px;color:var(--muted);font-family:var(--mono)">${open ? '▲' : '▼'}</span>
+        </div>
+        ${open ? `<div style="margin-top:14px">${recapBody}</div>` : ''}
+      </div>`);
+    }
+    return cards.join('');
+  })();
+
   return `
     <div class="page-title">Dashboard</div>
     ${noticeBoardHtml}
@@ -4588,6 +4726,7 @@ function renderDashboard() {
           ${nextMatchCard}
         </div>
         ${moveCardHtml}
+        ${bonusRecapCardsHtml}
         ${roundsTableHtml}
       </div>
       ${bonusTrackersHtml ? `<div class="dashboard-side">${bonusTrackersHtml}</div>` : ''}
@@ -5025,6 +5164,14 @@ function attachEvents() {
   // Most Positions Gained toggle + round pill
   const moveCardEl = document.querySelector('[data-action="toggle-move-card"]');
   if (moveCardEl) moveCardEl.onclick = () => { S.moveCardOpen = !S.moveCardOpen; render(); };
+
+  document.querySelectorAll('[data-action="toggle-bonus-recap"]').forEach(el => {
+    el.onclick = () => {
+      const rid = el.dataset.rid;
+      S.bonusRecapOpen[rid] = S.bonusRecapOpen[rid] === false ? true : false;
+      render();
+    };
+  });
 
   document.querySelectorAll('[data-action="move-round-pill"]').forEach(btn => {
     btn.onclick = () => { S.activeMoveRound = btn.dataset.rid; render(); };
@@ -5825,7 +5972,10 @@ function attachEvents() {
       const bq   = bank[bi];
       if (!bq) return;
       const qs = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
-      qs.push({ id: `bk_${rid}_${Date.now()}`, text: bq.text, pts: bq.pts, opts: [...bq.opts], type: bq.type || 'normal', wager: bq.wager || false });
+      // Use a stable ID based on text hash so re-adding the same question preserves bonusProgress
+      const textHash = bq.text.split('').reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
+      const stableId = `bk_${rid}_${Math.abs(textHash).toString(36)}`;
+      qs.push({ id: stableId, text: bq.text, pts: bq.pts, opts: [...bq.opts], type: bq.type || 'normal', wager: bq.wager || false });
       S.customBonusQs[rid] = qs;
       saveCustomQuestions();
       S.adminTab = 'questions';
