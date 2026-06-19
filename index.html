@@ -1501,7 +1501,7 @@ async function autoCheckAchievements() {
         for (const round of Object.values(ROUNDS)) {
           if (round.special === 'pretournament') continue;
           const rid = round.id;
-          if (!round.matches.some(m => S.results[rid]?.[m.id]?.winner)) continue;
+          if (!round.matches.every(m => S.results[rid]?.[m.id]?.winner)) continue;
 
           // Rank everyone as if this round didn't happen
           const prevSorted = players
@@ -6096,6 +6096,19 @@ async function syncFromAPI(apiKey) {
 // ════════════════════════════════════════════════════════════════
 // 10. UTILITIES
 // ════════════════════════════════════════════════════════════════
+function getCurrentRound() {
+  const now = Date.now();
+  const playableRounds = Object.values(ROUNDS).filter(r => r.matches?.length > 0);
+  let current = playableRounds[0];
+  for (const round of playableRounds) {
+    const firstKo = round.matches
+      .map(m => getKickoff(m.id, m.kickoff)).filter(Boolean)
+      .map(k => new Date(k).getTime()).sort((a, b) => a - b)[0];
+    if (firstKo && now >= firstKo) current = round;
+  }
+  return current.id;
+}
+
 function showMsg(el, text, type) {
   if (!el) return;
   el.className = type==='err' ? 'err-box' : 'ok-box';
@@ -6132,6 +6145,7 @@ async function init() {
       S.profile = profile;
     }
     await loadAllData();
+    S.activeRound = getCurrentRound();
   } else {
     // Still fetch registration cutoff so the signup form can enforce it
     const { data: regCfg } = await sb.from('round_settings').select('deadline').eq('round_id','__config__').single();
@@ -6159,6 +6173,7 @@ async function init() {
         S.page = 'dashboard';
       }
       await loadAllData();
+      S.activeRound = getCurrentRound();
       render();
     } else if (event === 'SIGNED_OUT') {
       S.user = null; S.profile = null;
