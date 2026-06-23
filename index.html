@@ -764,8 +764,16 @@ function saveBonusProgress(rid) {
   });
 }
 
-function saveMultipliers() {
+function saveMultipliers(rid) {
   localStorage.setItem('wc26:multipliers', JSON.stringify(S.multipliers));
+  if (!rid) return;
+  const m = S.multipliers[rid] || {};
+  sb.from('round_settings').upsert(
+    { round_id: rid, multipliers: JSON.stringify(m) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('saveMultipliers failed for', rid, error.message);
+  });
 }
 
 function saveKickoffOverrides() {
@@ -1086,6 +1094,12 @@ async function loadAllData() {
       try {
         const bp = JSON.parse(r.bonus_progress);
         if (bp && typeof bp === 'object') S.bonusProgress[r.round_id] = bp;
+      } catch(e) {}
+    }
+    if (r.multipliers) {
+      try {
+        const m = JSON.parse(r.multipliers);
+        if (m && typeof m === 'object') S.multipliers[r.round_id] = m;
       } catch(e) {}
     }
   }
@@ -2759,8 +2773,10 @@ function renderAdmin() {
       const groupResultsHtml = Object.entries(GROUPS).map(([g, teams]) => {
         const r1 = S.bonusResults['pt']?.[`pt_${g}_1`]?.answer || '';
         const r2 = S.bonusResults['pt']?.[`pt_${g}_2`]?.answer || '';
+        const r3 = S.bonusResults['pt']?.[`pt_${g}_3`]?.answer || '';
         const opts1 = teams.map(t => `<option value="${t}" ${r1===t?'selected':''}>${F(t)} ${t}</option>`).join('');
         const opts2 = teams.map(t => `<option value="${t}" ${r2===t?'selected':''}>${F(t)} ${t}</option>`).join('');
+        const opts3 = teams.map(t => `<option value="${t}" ${r3===t?'selected':''}>${F(t)} ${t}</option>`).join('');
         return `<div class="admin-match-row" style="flex-wrap:wrap;gap:10px;align-items:center">
           <span class="admin-match-label">Group ${g}
             <span style="color:var(--faint);font-size:9px;font-family:var(--mono)"> ${teams.join(' / ')}</span>
@@ -2773,6 +2789,10 @@ function renderAdmin() {
             <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">2ND</span>
             <select class="admin-select" data-action="pt-result-group" data-g="${g}" data-pos="2" style="min-width:140px">
               <option value="">— Team —</option>${opts2}
+            </select>
+            <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">3RD</span>
+            <select class="admin-select" data-action="pt-result-group" data-g="${g}" data-pos="3" style="min-width:140px">
+              <option value="">— Team —</option>${opts3}
             </select>
           </div>
         </div>`;
@@ -2986,6 +3006,39 @@ function renderAdmin() {
             These replace placeholders (like "1A") everywhere in the app — picks, bracket, and result dropdowns.
             The API cannot determine these automatically.
           </p>
+          ${rid === 'r32' ? `
+          <div style="margin-bottom:14px;padding:10px;background:rgba(100,160,220,0.07);border:1px solid rgba(100,160,220,0.2)">
+            <button class="btn btn-sm" id="autofill-r32-btn" style="border-color:#90caf9;color:#90caf9">
+              🪄 Auto-fill 1st/2nd place slots from Group Results
+            </button>
+            <p style="color:var(--faint);font-size:10px;margin-top:8px">
+              Fills any empty "1A"/"2A"-style slots using the Group Standings Results you entered on the Pre-Tournament tab.
+              Won't overwrite anything you've already typed in manually. "Best 3rd" slots still need manual assignment below
+              (real group standings — points, goal difference — aren't tracked here, so the app can't rank 3rd-place teams itself).
+            </p>
+          </div>
+          ${(() => {
+            const thirdPlaceTeams = Object.keys(GROUPS)
+              .map(g => ({ g, team: S.bonusResults['pt']?.[`pt_${g}_3`]?.answer || '' }))
+              .filter(x => x.team);
+            if (!thirdPlaceTeams.length) return '';
+            const slotMatches = round.matches.filter(m => /^Best 3rd \(\d+\)$/.test(m.away));
+            if (!slotMatches.length) return '';
+            const rows = slotMatches.map(m => {
+              const cur = S.bracketTeams[m.id]?.away || '';
+              const opts = thirdPlaceTeams.map(x => `<option value="${x.team}" ${cur===x.team?'selected':''}>${F(x.team)} ${x.team} (Group ${x.g})</option>`).join('');
+              return `<div class="admin-match-row" style="flex-wrap:wrap;gap:8px;align-items:center">
+                <span class="admin-match-label" style="color:var(--muted);font-size:10px">${m.away} →</span>
+                <select class="admin-select" data-action="bracket-team-select" data-mid="${m.id}" data-side="away" style="min-width:160px">
+                  <option value="">— Team —</option>${opts}
+                </select>
+              </div>`;
+            }).join('');
+            return `<div style="margin-bottom:14px">
+              <p style="color:var(--muted);font-size:11px;margin-bottom:8px">Assign 3rd-place teams to "Best 3rd" slots:</p>
+              ${rows}
+            </div>`;
+          })()}` : ''}
           ${round.matches.map(m => {
             const homeVal = S.bracketTeams[m.id]?.home || '';
             const awayVal = S.bracketTeams[m.id]?.away || '';
@@ -4998,6 +5051,7 @@ function renderResults() {
     <div class="card">
       <div class="card-title">${round.label} — Match Results</div>
       ${noMatches ? `<p style="color:var(--muted);font-size:13px">No matches in this round.</p>` : `
+      <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead>
           <tr style="border-bottom:1px solid var(--border2)">
@@ -5008,15 +5062,18 @@ function renderResults() {
           </tr>
         </thead>
         <tbody>${matchRows}</tbody>
-      </table>`}
+      </table>
+      </div>`}
     </div>
 
     ${bonusQs.length > 0 ? `
     <div class="card">
       <div class="card-title">${round.label} — Bonus Questions</div>
+      <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <tbody>${bonusRows}</tbody>
       </table>
+      </div>
     </div>` : ''}`;
 }
 
@@ -5849,6 +5906,49 @@ function attachEvents() {
     };
   });
 
+  // Admin: bracket team dropdown (used for "Best 3rd" slot assignment)
+  document.querySelectorAll('[data-action="bracket-team-select"]').forEach(sel => {
+    sel.onchange = () => {
+      const { mid, side } = sel.dataset;
+      if (!S.bracketTeams[mid]) S.bracketTeams[mid] = {};
+      const val = sel.value;
+      if (val) S.bracketTeams[mid][side] = val;
+      else delete S.bracketTeams[mid][side];
+      if (!S.bracketTeams[mid].home && !S.bracketTeams[mid].away) delete S.bracketTeams[mid];
+      saveBracketTeams();
+      render();
+    };
+  });
+
+  // Admin: auto-fill R32 1st/2nd-place slots from Group Standings Results
+  const autofillR32Btn = document.getElementById('autofill-r32-btn');
+  if (autofillR32Btn) {
+    autofillR32Btn.onclick = () => {
+      const r32 = ROUNDS['r32'];
+      let filled = 0;
+      r32.matches.forEach(m => {
+        ['home', 'away'].forEach(side => {
+          const placeholder = m[side];
+          const match = /^([12])([A-L])$/.exec(placeholder);
+          if (!match) return;
+          if (S.bracketTeams[m.id]?.[side]) return; // don't overwrite manual edits
+          const [, pos, g] = match;
+          const team = S.bonusResults['pt']?.[`pt_${g}_${pos}`]?.answer;
+          if (!team) return;
+          if (!S.bracketTeams[m.id]) S.bracketTeams[m.id] = {};
+          S.bracketTeams[m.id][side] = team;
+          filled++;
+        });
+      });
+      saveBracketTeams();
+      render();
+      setTimeout(() => {
+        const btn = document.getElementById('autofill-r32-btn');
+        if (btn) btn.textContent = filled ? `✅ Filled ${filled} slot${filled>1?'s':''}` : 'Nothing to fill — enter Group Results first';
+      }, 0);
+    };
+  }
+
   document.querySelectorAll('[data-action="clear-bracket-team"]').forEach(btn => {
     btn.onclick = () => {
       delete S.bracketTeams[btn.dataset.mid];
@@ -5899,7 +5999,7 @@ function attachEvents() {
       if (!S.multipliers[rid]) S.multipliers[rid] = {};
       S.multipliers[rid].match = parseFloat(document.getElementById('mult-match').value) || 1;
       S.multipliers[rid].bonus = parseFloat(document.getElementById('mult-bonus').value) || 1;
-      saveMultipliers();
+      saveMultipliers(rid);
       render();
     };
   }
