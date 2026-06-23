@@ -808,6 +808,54 @@ function getBracketTeam(mid, side, defaultName) {
   return S.bracketTeams[mid]?.[side] || defaultName;
 }
 
+// Returns the winner (or loser) of the Nth match (1-based) in a given round, once its result is entered
+function getRoundMatchOutcome(rid, idx, wantLoser) {
+  const round = ROUNDS[rid];
+  const m = round?.matches[idx - 1];
+  if (!m) return null;
+  const res = S.results[rid]?.[m.id];
+  if (!res?.winner) return null;
+  if (!wantLoser) return res.winner;
+  const homeTeam = getBracketTeam(m.id, 'home', m.home);
+  const awayTeam = getBracketTeam(m.id, 'away', m.away);
+  return res.winner === homeTeam ? awayTeam : homeTeam;
+}
+
+// Computes { mid, side, team } fills for a knockout round's placeholder slots, reading from
+// either group results (r32) or the previous round's match results (r16, qf, sf, final)
+function computeBracketAutoFill(rid) {
+  const round = ROUNDS[rid];
+  const prevByRound = { r16: 'r32', qf: 'r16', sf: 'qf', final: 'sf' };
+  const prevRid = prevByRound[rid];
+  const fills = [];
+  round.matches.forEach(m => {
+    ['home', 'away'].forEach(side => {
+      if (S.bracketTeams[m.id]?.[side]) return; // never overwrite a manual edit
+      const placeholder = m[side];
+      let team = null;
+
+      let mm;
+      if (rid === 'r32' && (mm = /^([12])([A-L])$/.exec(placeholder))) {
+        const [, pos, g] = mm;
+        team = S.bonusResults['pt']?.[`pt_${g}_${pos}`]?.answer || null;
+      } else if (prevRid && (mm = /^W R32-(\d+)$/.exec(placeholder))) {
+        team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
+      } else if (prevRid && (mm = /^QF(\d+)$/.exec(placeholder))) {
+        team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
+      } else if (prevRid && (mm = /^SF Loser (\d+)$/.exec(placeholder))) {
+        team = getRoundMatchOutcome(prevRid, Number(mm[1]), true);
+      } else if (prevRid && (mm = /^SF(\d+)$/.exec(placeholder))) {
+        team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
+      } else if (prevRid && (mm = /^Finalist (\d+)$/.exec(placeholder))) {
+        team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
+      }
+
+      if (team) fills.push({ mid: m.id, side, team });
+    });
+  });
+  return fills;
+}
+
 function loadLocalSettings() {
   try {
     const cq = localStorage.getItem('wc26:customBonusQs');
@@ -3006,18 +3054,19 @@ function renderAdmin() {
             These replace placeholders (like "1A") everywhere in the app — picks, bracket, and result dropdowns.
             The API cannot determine these automatically.
           </p>
-          ${rid === 'r32' ? `
           <div style="margin-bottom:14px;padding:10px;background:rgba(100,160,220,0.07);border:1px solid rgba(100,160,220,0.2)">
-            <button class="btn btn-sm" id="autofill-r32-btn" style="border-color:#90caf9;color:#90caf9">
-              🪄 Auto-fill 1st/2nd place slots from Group Results
+            <button class="btn btn-sm" id="autofill-bracket-btn" data-rid="${rid}" style="border-color:#90caf9;color:#90caf9">
+              🪄 Auto-fill from ${rid === 'r32' ? 'Group Results' : 'previous round results'}
             </button>
             <p style="color:var(--faint);font-size:10px;margin-top:8px">
-              Fills any empty "1A"/"2A"-style slots using the Group Standings Results you entered on the Pre-Tournament tab.
-              Won't overwrite anything you've already typed in manually. "Best 3rd" slots still need manual assignment below
-              (real group standings — points, goal difference — aren't tracked here, so the app can't rank 3rd-place teams itself).
+              ${rid === 'r32'
+                ? 'Fills any empty "1A"/"2A"-style slots using the Group Standings Results you entered on the Pre-Tournament tab.'
+                : `Fills any empty slots (e.g. "${round.matches[0]?.home}") using winners (and losers, for the 3rd place match) from the previous round’s entered results.`}
+              Won't overwrite anything you've already typed in manually.
+              ${rid === 'r32' ? '"Best 3rd" slots still need manual assignment below (real group standings — points, goal difference — aren’t tracked here, so the app can’t rank 3rd-place teams itself).' : ''}
             </p>
           </div>
-          ${(() => {
+          ${rid === 'r32' ? (() => {
             const thirdPlaceTeams = Object.keys(GROUPS)
               .map(g => ({ g, team: S.bonusResults['pt']?.[`pt_${g}_3`]?.answer || '' }))
               .filter(x => x.team);
@@ -3038,7 +3087,7 @@ function renderAdmin() {
               <p style="color:var(--muted);font-size:11px;margin-bottom:8px">Assign 3rd-place teams to "Best 3rd" slots:</p>
               ${rows}
             </div>`;
-          })()}` : ''}
+          })() : ''}
           ${round.matches.map(m => {
             const homeVal = S.bracketTeams[m.id]?.home || '';
             const awayVal = S.bracketTeams[m.id]?.away || '';
@@ -5920,31 +5969,21 @@ function attachEvents() {
     };
   });
 
-  // Admin: auto-fill R32 1st/2nd-place slots from Group Standings Results
-  const autofillR32Btn = document.getElementById('autofill-r32-btn');
-  if (autofillR32Btn) {
-    autofillR32Btn.onclick = () => {
-      const r32 = ROUNDS['r32'];
-      let filled = 0;
-      r32.matches.forEach(m => {
-        ['home', 'away'].forEach(side => {
-          const placeholder = m[side];
-          const match = /^([12])([A-L])$/.exec(placeholder);
-          if (!match) return;
-          if (S.bracketTeams[m.id]?.[side]) return; // don't overwrite manual edits
-          const [, pos, g] = match;
-          const team = S.bonusResults['pt']?.[`pt_${g}_${pos}`]?.answer;
-          if (!team) return;
-          if (!S.bracketTeams[m.id]) S.bracketTeams[m.id] = {};
-          S.bracketTeams[m.id][side] = team;
-          filled++;
-        });
+  // Admin: auto-fill bracket slots from group results (r32) or previous round results (r16/qf/sf/final)
+  const autofillBracketBtn = document.getElementById('autofill-bracket-btn');
+  if (autofillBracketBtn) {
+    autofillBracketBtn.onclick = () => {
+      const rid = autofillBracketBtn.dataset.rid;
+      const fills = computeBracketAutoFill(rid);
+      fills.forEach(({ mid, side, team }) => {
+        if (!S.bracketTeams[mid]) S.bracketTeams[mid] = {};
+        S.bracketTeams[mid][side] = team;
       });
       saveBracketTeams();
       render();
       setTimeout(() => {
-        const btn = document.getElementById('autofill-r32-btn');
-        if (btn) btn.textContent = filled ? `✅ Filled ${filled} slot${filled>1?'s':''}` : 'Nothing to fill — enter Group Results first';
+        const btn = document.getElementById('autofill-bracket-btn');
+        if (btn) btn.textContent = fills.length ? `✅ Filled ${fills.length} slot${fills.length>1?'s':''}` : 'Nothing to fill — enter previous round results first';
       }, 0);
     };
   }
