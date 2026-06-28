@@ -801,6 +801,13 @@ function saveBonusLockOverrides() {
 
 function saveBracketTeams() {
   localStorage.setItem('wc26:bracketTeams', JSON.stringify(S.bracketTeams));
+  // Also persist to Supabase so all players/devices see the real bracket teams, not just the admin's device
+  sb.from('round_settings').upsert(
+    { round_id: '__bracket_teams__', bracket_teams: JSON.stringify(S.bracketTeams) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('saveBracketTeams (DB) failed:', error.message);
+  });
 }
 
 // Returns the actual team name for a bracket slot, falling back to the placeholder
@@ -1241,6 +1248,18 @@ async function loadAllData() {
   } else if (Object.keys(S.lockSchedules).length) {
     // Migrate schedules previously saved only to this admin's localStorage
     saveLockSchedules();
+  }
+
+  // bracket team overrides (stored under '__bracket_teams__' so all players see the real team names)
+  const { data: btCfg } = await sb.from('round_settings').select('bracket_teams').eq('round_id','__bracket_teams__').single();
+  if (btCfg?.bracket_teams) {
+    try {
+      const bt = JSON.parse(btCfg.bracket_teams);
+      if (bt && typeof bt === 'object') S.bracketTeams = bt;
+    } catch(e) {}
+  } else if (Object.keys(S.bracketTeams).length) {
+    // Migrate bracket teams previously saved only to this admin's localStorage
+    saveBracketTeams();
   }
 
   // prize configuration (stored in round_settings with special round_id '__prizes__')
