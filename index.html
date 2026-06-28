@@ -1145,6 +1145,9 @@ async function loadAllData() {
   const pickResults = await Promise.all(
     roundIds.map(rid => sb.from('picks').select('*').eq('round_id', rid))
   );
+  pickResults.forEach(({ data, error }, i) => {
+    if (error) console.error('[WC26] picks fetch failed for round', roundIds[i], ':', error.message, error.code);
+  });
   for (const { data } of pickResults) {
     for (const p of (data || [])) {
       if (!S.picks[p.user_id]) S.picks[p.user_id] = {};
@@ -1153,13 +1156,20 @@ async function loadAllData() {
     }
   }
 
-  // bonus answers
-  const { data: bans } = await sb.from('bonus_answers').select('*');
+  // bonus answers — fetch per round to stay under Supabase's 1000-row server cap
   S.bonusAnswers = {};
-  for (const b of (bans || [])) {
-    if (!S.bonusAnswers[b.user_id]) S.bonusAnswers[b.user_id] = {};
-    if (!S.bonusAnswers[b.user_id][b.round_id]) S.bonusAnswers[b.user_id][b.round_id] = {};
-    S.bonusAnswers[b.user_id][b.round_id][b.question_id] = { answer: b.answer, wager: b.wager };
+  const bonusResults = await Promise.all(
+    roundIds.map(rid => sb.from('bonus_answers').select('*').eq('round_id', rid))
+  );
+  bonusResults.forEach(({ error }, i) => {
+    if (error) console.error('[WC26] bonus_answers fetch failed for round', roundIds[i], ':', error.message, error.code);
+  });
+  for (const { data } of bonusResults) {
+    for (const b of (data || [])) {
+      if (!S.bonusAnswers[b.user_id]) S.bonusAnswers[b.user_id] = {};
+      if (!S.bonusAnswers[b.user_id][b.round_id]) S.bonusAnswers[b.user_id][b.round_id] = {};
+      S.bonusAnswers[b.user_id][b.round_id][b.question_id] = { answer: b.answer, wager: b.wager };
+    }
   }
 
   // results
