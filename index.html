@@ -821,12 +821,42 @@ function getRoundMatchOutcome(rid, idx, wantLoser) {
   return res.winner === homeTeam ? awayTeam : homeTeam;
 }
 
+// Returns true if a slot's literal home/away text is still a placeholder code
+// (e.g. "1A", "W R32-3", "QF2", "Best 3rd (1)") rather than a real, confirmed team name
+function isPlaceholderSlot(rid, placeholder) {
+  const prevByRound = { r16: 'r32', qf: 'r16', sf: 'qf', final: 'sf' };
+  if (rid === 'r32' && /^([12])([A-L])$/.test(placeholder)) return true;
+  if (/^Best 3rd \(\d+\)$/.test(placeholder)) return true;
+  if (/^3[A-L]+$/.test(placeholder)) return true;
+  if (prevByRound[rid] && /^W R32-(\d+)$/.test(placeholder)) return true;
+  if (prevByRound[rid] && /^QF(\d+)$/.test(placeholder)) return true;
+  if (prevByRound[rid] && /^SF Loser (\d+)$/.test(placeholder)) return true;
+  if (prevByRound[rid] && /^SF(\d+)$/.test(placeholder)) return true;
+  if (prevByRound[rid] && /^Finalist (\d+)$/.test(placeholder)) return true;
+  return false;
+}
+
+// Returns 3rd-place finishers across all groups, ranked by pts → GD → GF (same rule the
+// Groups tab uses to highlight the best 8 thirds), restricted to groups whose group stage
+// is fully complete (every team has played all 3 group matches)
+function getRankedThirdPlaceTeams() {
+  const standings = computeGroupStandings();
+  return Object.entries(standings)
+    .filter(([, teams]) => teams.every(t => t.played >= 3))
+    .map(([g, teams]) => ({ g, ...teams[2] }))
+    .filter(t => t.team)
+    .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+}
+
 // Computes { mid, side, team } fills for a knockout round's placeholder slots, reading from
-// either group results (r32) or the previous round's match results (r16, qf, sf, final)
+// either group results (r32) or the previous round's match results (r16, qf, sf, final).
+// "Best 3rd"/"3XXXX" slots are intentionally skipped here — ranking which specific 3rd-place
+// team fills which of the 8 slots needs a human decision, made via the dropdown below.
 function computeBracketAutoFill(rid) {
   const round = ROUNDS[rid];
   const prevByRound = { r16: 'r32', qf: 'r16', sf: 'qf', final: 'sf' };
   const prevRid = prevByRound[rid];
+  const standings = rid === 'r32' ? computeGroupStandings() : null;
   const fills = [];
   round.matches.forEach(m => {
     ['home', 'away'].forEach(side => {
@@ -837,7 +867,9 @@ function computeBracketAutoFill(rid) {
       let mm;
       if (rid === 'r32' && (mm = /^([12])([A-L])$/.exec(placeholder))) {
         const [, pos, g] = mm;
-        team = S.bonusResults['pt']?.[`pt_${g}_${pos}`]?.answer || null;
+        const teams = standings[g];
+        const groupComplete = teams && teams.every(t => t.played >= 3);
+        team = groupComplete ? teams[Number(pos) - 1]?.team || null : null;
       } else if (prevRid && (mm = /^W R32-(\d+)$/.exec(placeholder))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
       } else if (prevRid && (mm = /^QF(\d+)$/.exec(placeholder))) {
@@ -854,6 +886,26 @@ function computeBracketAutoFill(rid) {
     });
   });
   return fills;
+}
+
+// Removes saved bracketTeams overrides for slots whose round data already has a real,
+// confirmed team name baked in directly (no longer a placeholder code) — fixes stale
+// overrides left over from before a schedule update replaced placeholders with real teams
+function clearStaleBracketOverrides(rid) {
+  const round = ROUNDS[rid];
+  let cleared = 0;
+  round.matches.forEach(m => {
+    ['home', 'away'].forEach(side => {
+      if (!S.bracketTeams[m.id]?.[side]) return;
+      if (isPlaceholderSlot(rid, m[side])) return; // still a placeholder — override is legitimate
+      delete S.bracketTeams[m.id][side];
+      cleared++;
+    });
+    if (S.bracketTeams[m.id] && !S.bracketTeams[m.id].home && !S.bracketTeams[m.id].away) {
+      delete S.bracketTeams[m.id];
+    }
+  });
+  return cleared;
 }
 
 function loadLocalSettings() {
@@ -2433,7 +2485,13 @@ function renderPicks() {
     ? ` <span style="color:#ff7043;font-size:9px">(×${mMult} match · ×${bMult} bonus multipliers active)</span>` : '';
   const bonusNote = bonusQs.length
     ? ` + ${bonusMaxPts} pts (${bonusQs.length} bonus Q${bonusQs.length>1?'s':''})` : '';
-  const ptsHtml = `<div style="background:rgba(232,213,163,0.04);border:1px solid rgba(232,213,163,0.1);
+  const knockoutNote = round.knockout ? `<div style="background:rgba(255,112,67,0.07);border:1px solid rgba(255,112,67,0.25);
+    padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--muted);line-height:1.6">
+    ⚠ <strong style="color:#ff7043">No draws in knockout rounds</strong> — every match has a winner, so pick a side, not a tie.
+    If a match is level after extra time and decided on penalties, the official result will show the shootout winner's score
+    bumped up by 1 (e.g. a match tied 1–1 after extra time, won on penalties, will be entered as 2–1).
+  </div>` : '';
+  const ptsHtml = `${knockoutNote}<div style="background:rgba(232,213,163,0.04);border:1px solid rgba(232,213,163,0.1);
     padding:8px 14px;margin-bottom:12px;font-size:11px;font-family:var(--mono);color:var(--muted)">
     🏆 Up for grabs: <strong style="color:var(--gold)">${totalMax} pts</strong> —
     ${round.matches.length} matches × max 3 pts = ${matchMaxPts}${bonusNote}${multNote}
@@ -3026,6 +3084,17 @@ function renderAdmin() {
       const { match: mMult, bonus: bMult } = getMultipliers(rid);
       tabContent = `
         <div class="pill-row">${pillsHtml}</div>
+        ${round.knockout ? `
+        <div class="card" style="border-color:rgba(255,112,67,0.35);margin-bottom:12px;background:rgba(255,112,67,0.06)">
+          <div class="card-title" style="color:#ff7043">⚠ Knockout Scoring — Extra Time &amp; Penalties</div>
+          <p style="color:var(--muted);font-size:12px;line-height:1.6">
+            Draws aren't allowed in knockout rounds — every match here must have a winner.
+            If a match is tied after 90 minutes and goes to extra time, enter the score as it stood at the end of <strong>extra time</strong>
+            (not regulation). If it's still tied after extra time and is decided on <strong>penalties</strong>, add one goal to the
+            penalty-shootout winner's score to break the tie — e.g. a match tied 1–1 after extra time where the home team wins on
+            penalties should be entered as <strong>2–1</strong> with the home team selected as winner.
+          </p>
+        </div>` : ''}
         <div class="card" style="border-color:rgba(100,150,255,0.2);margin-bottom:12px">
           <div class="card-title" style="color:#90caf9">✖ Points Multipliers — ${roundLabel(round)}</div>
           <p style="color:var(--muted);font-size:11px;margin-bottom:14px">Multiply base points for this round. Knockout wagers are never multiplied.</p>
@@ -3058,24 +3127,29 @@ function renderAdmin() {
             <button class="btn btn-sm" id="autofill-bracket-btn" data-rid="${rid}" style="border-color:#90caf9;color:#90caf9">
               🪄 Auto-fill from ${rid === 'r32' ? 'Group Results' : 'previous round results'}
             </button>
+            <button class="btn btn-sm" id="clear-stale-overrides-btn" data-rid="${rid}" style="border-color:#ff7043;color:#ff7043;margin-left:8px">
+              🧹 Clear stale overrides
+            </button>
             <p style="color:var(--faint);font-size:10px;margin-top:8px">
               ${rid === 'r32'
-                ? 'Fills any empty "1A"/"2A"-style slots using the Group Standings Results you entered on the Pre-Tournament tab.'
+                ? 'Fills any empty "1A"/"2A"-style slots using live Group Standings (computed from results entered on the Results tab for each group-stage round) — same standings shown on the Groups tab.'
                 : `Fills any empty slots (e.g. "${round.matches[0]?.home}") using winners (and losers, for the 3rd place match) from the previous round’s entered results.`}
               Won't overwrite anything you've already typed in manually.
-              ${rid === 'r32' ? '"Best 3rd" slots still need manual assignment below (real group standings — points, goal difference — aren’t tracked here, so the app can’t rank 3rd-place teams itself).' : ''}
+              ${rid === 'r32' ? '"Best 3rd" slots still need manual assignment below — the app ranks 3rd-place teams by points/GD/GF automatically, but only once a group has played all 3 matches, and you choose which ranked team fills each slot.' : ''}
+              <br>"Clear stale overrides" removes any saved team-name override for a slot that's no longer a placeholder (e.g. the schedule was updated directly with real teams) — use this if a match is showing the wrong team after a schedule update.
             </p>
           </div>
           ${rid === 'r32' ? (() => {
-            const thirdPlaceTeams = Object.keys(GROUPS)
-              .map(g => ({ g, team: S.bonusResults['pt']?.[`pt_${g}_3`]?.answer || '' }))
-              .filter(x => x.team);
+            const thirdPlaceTeams = getRankedThirdPlaceTeams();
             if (!thirdPlaceTeams.length) return '';
-            const slotMatches = round.matches.filter(m => /^Best 3rd \(\d+\)$/.test(m.away));
+            const slotMatches = round.matches.filter(m => /^Best 3rd \(\d+\)$/.test(m.away) || /^3[A-L]+$/.test(m.away));
             if (!slotMatches.length) return '';
             const rows = slotMatches.map(m => {
               const cur = S.bracketTeams[m.id]?.away || '';
-              const opts = thirdPlaceTeams.map(x => `<option value="${x.team}" ${cur===x.team?'selected':''}>${F(x.team)} ${x.team} (Group ${x.g})</option>`).join('');
+              // "3EFGIJ"-style labels restrict the candidates to the listed groups' 3rd-place teams
+              const groupLetters = /^3([A-L]+)$/.exec(m.away)?.[1];
+              const candidates = groupLetters ? thirdPlaceTeams.filter(x => groupLetters.includes(x.g)) : thirdPlaceTeams;
+              const opts = candidates.map(x => `<option value="${x.team}" ${cur===x.team?'selected':''}>${F(x.team)} ${x.team} (Grp ${x.g} · ${x.pts}pts · GD ${x.gd>0?'+':''}${x.gd})</option>`).join('');
               return `<div class="admin-match-row" style="flex-wrap:wrap;gap:8px;align-items:center">
                 <span class="admin-match-label" style="color:var(--muted);font-size:10px">${m.away} →</span>
                 <select class="admin-select" data-action="bracket-team-select" data-mid="${m.id}" data-side="away" style="min-width:160px">
@@ -5995,6 +6069,21 @@ function attachEvents() {
       render();
     };
   });
+
+  // Admin: clear stale bracket overrides left over from before a schedule update
+  const clearStaleBtn = document.getElementById('clear-stale-overrides-btn');
+  if (clearStaleBtn) {
+    clearStaleBtn.onclick = () => {
+      const rid = clearStaleBtn.dataset.rid;
+      const cleared = clearStaleBracketOverrides(rid);
+      saveBracketTeams();
+      render();
+      setTimeout(() => {
+        const btn = document.getElementById('clear-stale-overrides-btn');
+        if (btn) btn.textContent = cleared ? `✅ Cleared ${cleared} stale override${cleared>1?'s':''}` : 'Nothing stale to clear';
+      }, 0);
+    };
+  }
 
   // Admin: reload all data from Supabase
   const reloadDataBtn = document.getElementById('reload-data-btn');
