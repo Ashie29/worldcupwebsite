@@ -3219,8 +3219,10 @@ function renderAdmin() {
             const localVal = toDatetimeLocal(ko);
             const isOverridden = !!S.kickoffOverrides[m.id];
             const localDisplay = ko ? new Date(ko).toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'No time set';
+            const koHomeTeam = getBracketTeam(m.id, 'home', m.home);
+            const koAwayTeam = getBracketTeam(m.id, 'away', m.away);
             return `<div class="admin-match-row" style="flex-wrap:wrap;gap:10px;align-items:center">
-              <span class="admin-match-label">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${isOverridden ? ' <span style="color:#ff7043;font-size:9px;font-family:var(--mono)">ADJUSTED</span>' : ''}</span>
+              <span class="admin-match-label">${F(koHomeTeam)} ${koHomeTeam} vs ${F(koAwayTeam)} ${koAwayTeam}${isOverridden ? ' <span style="color:#ff7043;font-size:9px;font-family:var(--mono)">ADJUSTED</span>' : ''}</span>
               <input type="datetime-local" class="admin-score" style="width:190px;font-family:var(--mono);font-size:11px"
                 value="${localVal}" data-action="set-kickoff" data-mid="${m.id}">
               <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">${localDisplay}</span>
@@ -3489,9 +3491,11 @@ function renderAdmin() {
               const rowBg = missingLate ? 'background:rgba(239,83,80,0.08);' : missingWarn ? 'background:rgba(255,183,77,0.08);' : '';
               const missingColor = missingLate ? '#ef5350' : missingWarn ? '#ffb74d' : 'var(--faint)';
               const missingLabel = missingLate ? '✗ no pick' : missingWarn ? '⚠ no pick — closing soon' : '— no pick —';
+              const homeTeamLabel = getBracketTeam(m.id, 'home', m.home);
+              const awayTeamLabel = getBracketTeam(m.id, 'away', m.away);
               return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${rowBg}
                 border-bottom:1px solid var(--border2);font-size:12px;flex-wrap:wrap">
-                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(m.home)} ${m.home} vs ${F(m.away)} ${m.away}${matchLabel}</span>
+                <span style="color:var(--muted);min-width:160px;flex-shrink:0">${F(homeTeamLabel)} ${homeTeamLabel} vs ${F(awayTeamLabel)} ${awayTeamLabel}${matchLabel}</span>
                 <span style="color:${pick.winner ? 'var(--text)' : missingColor}">
                   ${pick.winner ? `${pick.winner}${score} ${icon}` : missingLabel}
                 </span>
