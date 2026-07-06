@@ -778,6 +778,12 @@ function saveMultipliers(rid) {
 
 function saveKickoffOverrides() {
   localStorage.setItem('wc26:kickoffOverrides', JSON.stringify(S.kickoffOverrides));
+  sb.from('round_settings').upsert(
+    { round_id: '__kickoffs__', kickoff_overrides: JSON.stringify(S.kickoffOverrides) },
+    { onConflict: 'round_id' }
+  ).then(({ error }) => {
+    if (error) console.warn('saveKickoffOverrides (DB) failed:', error.message);
+  });
 }
 
 function savePtSettings() {
@@ -1248,6 +1254,17 @@ async function loadAllData() {
   } else if (Object.keys(S.lockSchedules).length) {
     // Migrate schedules previously saved only to this admin's localStorage
     saveLockSchedules();
+  }
+
+  // kickoff overrides (stored under '__kickoffs__' so all players see delayed/rescheduled match times)
+  const { data: koCfg } = await sb.from('round_settings').select('kickoff_overrides').eq('round_id','__kickoffs__').single();
+  if (koCfg?.kickoff_overrides) {
+    try {
+      const ko = JSON.parse(koCfg.kickoff_overrides);
+      if (ko && typeof ko === 'object') S.kickoffOverrides = ko;
+    } catch(e) {}
+  } else if (Object.keys(S.kickoffOverrides).length) {
+    saveKickoffOverrides();
   }
 
   // bracket team overrides (stored under '__bracket_teams__' so all players see the real team names)
