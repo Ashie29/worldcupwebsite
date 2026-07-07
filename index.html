@@ -688,6 +688,8 @@ const S = {
   ptSettings: { winnerPts: 10 }, // pre-tournament settings
   lockSchedules: {},  // rid → { lockAt: ISO string, unlockAt: ISO string }
   bracketTeams: {},   // mid → { home: string, away: string }
+  myFeedback: null,       // current user's own feedback submission or null
+  feedbackEntries: null,  // all entries (loaded lazily for admin)
   customRules: null,  // string | null — stored in localStorage 'wc26:customRules'
   rulesEditing: false,
   manualMatchLocks: {}, // mid → true — manually locked matches, localStorage 'wc26:manualMatchLocks'
@@ -1289,6 +1291,12 @@ async function loadAllData() {
   } else if (S.prizes?.entries?.length) {
     // Migrate prizes previously saved only to this admin's localStorage
     savePrizes();
+  }
+
+  // current user's own feedback submission
+  if (S.user?.id) {
+    const { data: fbRow } = await sb.from('feedback').select('*').eq('user_id', S.user.id).single();
+    S.myFeedback = fbRow || null;
   }
 }
 
@@ -2138,6 +2146,7 @@ function renderShell(content) {
     { id:'groups', label:'Groups' },
     { id:'bracket', label:'Bracket' },
     { id:'rules', label:'Rules' },
+    { id:'feedback', label:'Feedback' },
   ];
   // Preserve nav scroll position across re-renders so the tab bar doesn't jump
   const _navScrollLeft = document.querySelector('.nav')?.scrollLeft || 0;
@@ -2525,7 +2534,7 @@ function renderPicks() {
     return '';
   })();
   const matchMaxPts = round.matches.length * 3 * mMult;
-  const bonusMaxPts = bonusQs.reduce((sum, q) => sum + q.pts * bMult, 0);
+  const bonusMaxPts = bonusQs.reduce((sum, q) => sum + (q.wager ? q.pts : q.pts * bMult), 0);
   const totalMax = matchMaxPts + bonusMaxPts;
   const multNote = (mMult !== 1 || bMult !== 1)
     ? ` <span style="color:#ff7043;font-size:9px">(×${mMult} match · ×${bMult} bonus multipliers active)</span>` : '';
@@ -2893,6 +2902,7 @@ function renderAdmin() {
     { id:'players',   label:'👥 Players'  },
     { id:'sync',      label:'🔄 Sync'     },
     { id:'logs',      label:'📜 Logs'     },
+    { id:'feedback',  label:'💬 Feedback' },
   ];
 
   const tabsHtml = ADMIN_TABS.map(t =>
@@ -3890,6 +3900,39 @@ function renderAdmin() {
           </table>
         </div>` : `<p style="color:var(--muted);font-size:13px">No activity logged yet.</p>`}
       </div>`;
+  }
+
+  // ── Feedback tab ─────────────────────────────────────────────
+  if (adminTab === 'feedback') {
+    const entries = S.feedbackEntries;
+    if (entries === null) {
+      tabContent = `<div class="card"><p style="color:var(--muted);font-size:13px">Loading feedback…</p></div>`;
+    } else if (entries.length === 0) {
+      tabContent = `<div class="card"><p style="color:var(--muted);font-size:13px">No feedback submitted yet.</p></div>`;
+    } else {
+      const avg = (entries.reduce((s, e) => s + (e.rating || 0), 0) / entries.length).toFixed(1);
+      const stars = r => '★'.repeat(r) + '☆'.repeat(5 - r);
+      const rows = entries.map(e => {
+        const name = e.user_name || '—';
+        const date = new Date(e.created_at).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+        return `<tr>
+          <td style="white-space:nowrap">${date}</td>
+          <td><strong>${name}</strong></td>
+          <td style="color:var(--gold);letter-spacing:2px">${stars(e.rating || 0)}</td>
+          <td style="color:var(--muted);font-size:12px;max-width:340px;white-space:pre-wrap">${e.message || '—'}</td>
+        </tr>`;
+      }).join('');
+      tabContent = `
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-title">💬 Player Feedback — ${entries.length} response${entries.length !== 1 ? 's' : ''} · avg ${avg}/5 ★</div>
+          <div style="overflow-x:auto">
+            <table class="rounds-table">
+              <thead><tr><th>Date</th><th>Player</th><th>Rating</th><th>Comments</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
   }
 
   return `
@@ -5317,6 +5360,37 @@ If players remain tied after all tiebreakers, the prize for their combined posit
 🏆 Pre-tournament tournament winner — ${winPts} pts`;
 }
 
+function renderFeedback() {
+  const fb = S.myFeedback;
+  const submitted = !!fb;
+  const stars = n => [1,2,3,4,5].map(i =>
+    `<label style="font-size:32px;cursor:pointer;color:${i<=(n||0)?'var(--gold)':'var(--muted)'}">
+      <input type="radio" name="fb-rating" value="${i}" style="display:none" ${i===(n||0)?'checked':''}>★</label>`
+  ).join('');
+
+  return `
+    <div class="page-title">💬 Feedback</div>
+    <div class="card" style="max-width:600px">
+      <div class="card-title">${submitted ? 'Your Feedback' : 'Share Your Thoughts'}</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:20px">
+        ${submitted
+          ? 'Thanks for submitting! You can update your response below.'
+          : 'How was the WC26 pool experience? Your feedback helps us improve for next time.'}
+      </p>
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;color:var(--muted);letter-spacing:0.08em;margin-bottom:8px">OVERALL RATING</div>
+        <div id="fb-stars" style="display:flex;gap:4px">${stars(fb?.rating)}</div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;color:var(--muted);letter-spacing:0.08em;margin-bottom:8px">COMMENTS (optional)</div>
+        <textarea id="fb-message" class="input" rows="5" placeholder="What did you enjoy? What could be better?"
+          style="width:100%;resize:vertical;font-family:var(--sans)">${fb?.message || ''}</textarea>
+      </div>
+      <button class="btn" id="fb-submit" style="min-width:120px">${submitted ? 'Update Response' : 'Submit Feedback'}</button>
+      <span id="fb-status" style="margin-left:12px;font-size:13px;color:var(--muted)"></span>
+    </div>`;
+}
+
 function renderRules() {
   const isAdmin = S.profile?.is_admin;
   const editing = S.rulesEditing;
@@ -5390,6 +5464,7 @@ function render() {
       case 'ptpicks':     content = renderPtPicks(); break;
       case 'admin':       content = renderAdmin(); break;
       case 'rules':       content = renderRules(); break;
+      case 'feedback':    content = renderFeedback(); break;
     }
     renderShell(content);
     attachEvents();
@@ -5889,8 +5964,8 @@ function attachEvents() {
         let winner = cur.winner || '';
         const shN = parseInt(sh), saN = parseInt(sa);
         if (!isNaN(shN) && !isNaN(saN) && sh !== '' && sa !== '') {
-          if (shN > saN) winner = m?.home || winner;
-          else if (saN > shN) winner = m?.away || winner;
+          if (shN > saN) winner = (m ? getBracketTeam(m.id, 'home', m.home) : '') || winner;
+          else if (saN > shN) winner = (m ? getBracketTeam(m.id, 'away', m.away) : '') || winner;
           else if (!round?.knockout) winner = 'Draw';
           // tied knockout: keep existing winner (ET/pens must be set manually)
         }
@@ -5996,9 +6071,44 @@ function attachEvents() {
       if (S.adminTab === 'logs' && !S.activityLogsLoaded) {
         loadActivityLogs().then(render);
       }
+      if (S.adminTab === 'feedback' && S.feedbackEntries === null) {
+        sb.from('feedback').select('*').order('created_at', { ascending: false })
+          .then(({ data }) => { S.feedbackEntries = data || []; render(); });
+      }
       render();
     };
   });
+
+  // Feedback page: submit / update
+  const fbSubmit = document.getElementById('fb-submit');
+  if (fbSubmit) {
+    fbSubmit.onclick = async () => {
+      const rating = parseInt(document.querySelector('input[name="fb-rating"]:checked')?.value || '0');
+      const message = document.getElementById('fb-message')?.value.trim() || '';
+      const status = document.getElementById('fb-status');
+      if (!rating) { if (status) status.textContent = 'Please select a star rating.'; return; }
+      fbSubmit.disabled = true;
+      fbSubmit.textContent = 'Saving…';
+      const row = {
+        user_id: S.user.id,
+        user_name: S.profile?.nickname || S.profile?.name || '',
+        rating,
+        message,
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await sb.from('feedback').upsert(row, { onConflict: 'user_id' });
+      if (error) {
+        if (status) status.textContent = 'Error saving — try again.';
+        fbSubmit.disabled = false;
+        fbSubmit.textContent = S.myFeedback ? 'Update Response' : 'Submit Feedback';
+      } else {
+        S.myFeedback = row;
+        if (status) status.textContent = '✅ Saved!';
+        fbSubmit.disabled = false;
+        fbSubmit.textContent = 'Update Response';
+      }
+    };
+  }
 
   // Admin: refresh activity logs
   const refreshLogsBtn = document.getElementById('refresh-logs-btn');
