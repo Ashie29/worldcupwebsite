@@ -2534,12 +2534,28 @@ function renderPicks() {
     return '';
   })();
   const matchMaxPts = round.matches.length * 3 * mMult;
-  const bonusMaxPts = bonusQs.reduce((sum, q) => sum + (q.wager ? q.pts : q.pts * bMult), 0);
-  const totalMax = matchMaxPts + bonusMaxPts;
+  const regularBonusQs = bonusQs.filter(q => !q.wager);
+  const wagerBonusQs   = bonusQs.filter(q => q.wager);
+  const regularBonusMax = regularBonusQs.reduce((sum, q) => sum + q.pts * bMult, 0);
+  const wagerMax = 10; // slider max
+  const wagerBonusMax   = wagerBonusQs.length * wagerMax;
+  const totalMax = matchMaxPts + regularBonusMax + wagerBonusMax;
+
   const multNote = (mMult !== 1 || bMult !== 1)
     ? ` <span style="color:#ff7043;font-size:9px">(×${mMult} match · ×${bMult} bonus multipliers active)</span>` : '';
-  const bonusNote = bonusQs.length
-    ? ` + ${bonusMaxPts} pts (${bonusQs.length} bonus Q${bonusQs.length>1?'s':''})` : '';
+
+  const bonusParts = [];
+  if (regularBonusQs.length) {
+    const label = bMult !== 1
+      ? `${regularBonusQs.length} bonus Q${regularBonusQs.length>1?'s':''} × pts × ×${bMult} = ${regularBonusMax} pts`
+      : `${regularBonusQs.length} bonus Q${regularBonusQs.length>1?'s':''} = ${regularBonusMax} pts`;
+    bonusParts.push(label);
+  }
+  if (wagerBonusQs.length) {
+    bonusParts.push(`${wagerBonusQs.length} wager Q${wagerBonusQs.length>1?'s':''} (up to ${wagerMax} pts each)`);
+  }
+  const bonusNote = bonusParts.length ? ` + ${bonusParts.join(' + ')}` : '';
+
   const knockoutNote = round.knockout ? `<div style="background:rgba(255,112,67,0.07);border:1px solid rgba(255,112,67,0.25);
     padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--muted);line-height:1.6">
     ⚠ <strong style="color:#ff7043">No draws in knockout rounds</strong> — every match has a winner, so pick a side, not a tie.
@@ -2549,7 +2565,7 @@ function renderPicks() {
   const ptsHtml = `${knockoutNote}<div style="background:rgba(232,213,163,0.04);border:1px solid rgba(232,213,163,0.1);
     padding:8px 14px;margin-bottom:12px;font-size:11px;font-family:var(--mono);color:var(--muted)">
     🏆 Up for grabs: <strong style="color:var(--gold)">${totalMax} pts</strong> —
-    ${round.matches.length} matches × max 3 pts = ${matchMaxPts}${bonusNote}${multNote}
+    ${round.matches.length} matches × max 3 pts${mMult !== 1 ? ` × ×${mMult}` : ''} = ${matchMaxPts}${bonusNote}${multNote}
   </div>`;
 
   const matchesHtml = round.matches.map(m => {
@@ -2677,8 +2693,8 @@ function renderPicks() {
       else if (ans.answer === 'Abstain') hint = `<span class="pts-badge" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border2)">0 pts (Abstain)</span>`;
     }
 
-    // Wager slider
-    const wagerHtml = hasWager ? `
+    // Wager slider — hidden when Abstain is selected
+    const wagerHtml = (hasWager && ans.answer !== 'Abstain') ? `
       <div class="wager-row" style="margin-top:10px;gap:10px">
         <span class="wager-hint">💰 Stake:</span>
         <input type="range" min="0" max="10" value="${wager}"
@@ -2692,8 +2708,14 @@ function renderPicks() {
       ? `<span style="color:var(--muted);font-size:10px">[wager 0–10]</span>`
       : `<span style="color:var(--gold);font-size:10px">[${bq.pts} pts${isOU ? ' · wrong −'+bq.pts : ''}]</span>`;
 
+    const tbHtml = (bq.tiebreakers?.length) ? `
+      <div style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.03);border-left:2px solid rgba(232,213,163,0.3);border-radius:2px">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:0.1em;margin-bottom:4px">TIEBREAKER CRITERIA</div>
+        ${bq.tiebreakers.map((tb, j) => `<div style="font-size:11px;color:var(--muted);line-height:1.6"><span style="color:rgba(232,213,163,0.5);font-family:var(--mono)">${j+1}.</span> ${tb}</div>`).join('')}
+      </div>` : '';
     return `<div class="bonus-q">
       <div class="bonus-q-text">${bq.text} ${ptsLabel}${isOU ? ` <span style="font-size:10px;color:#90caf9;font-family:var(--mono)">[OVER/UNDER]</span>` : ''}</div>
+      ${tbHtml}
       <div class="bonus-opts">${optsHtml}</div>
       ${wagerHtml}
       ${hint}
@@ -3101,7 +3123,12 @@ function renderAdmin() {
 
     } else {
       // ── Regular round results panel ────────────────────────────
-      const matchResultsHtml = round.matches.map(m => {
+      const sortedMatches = [...round.matches].sort((a, b) => {
+        const ka = new Date(getKickoff(a.id, a.kickoff) || 0).getTime();
+        const kb = new Date(getKickoff(b.id, b.kickoff) || 0).getTime();
+        return ka - kb;
+      });
+      const matchResultsHtml = sortedMatches.map(m => {
         const res  = S.results[rid]?.[m.id] || {};
         const homeTeam = getBracketTeam(m.id, 'home', m.home);
         const awayTeam = getBracketTeam(m.id, 'away', m.away);
@@ -3653,6 +3680,19 @@ function renderAdmin() {
           }
           <button class="btn btn-gold btn-sm" data-save-q="${i}" data-rid="${qRid}">Save</button>
           <button class="btn btn-danger btn-sm" data-del-q="${i}" data-rid="${qRid}">Delete</button>
+        </div>
+        <div style="padding-left:28px;margin-top:10px">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:6px">TIEBREAKER CRITERIA <span style="font-weight:400;opacity:0.6">(optional — shown to players under the question)</span></div>
+          ${(q.tiebreakers||[]).map((tb, j) => `
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:5px">
+              <span style="font-size:10px;color:var(--muted);min-width:18px;text-align:right;flex-shrink:0">${j+1}.</span>
+              <input data-eq-tb="${i}-${j}" value="${tb.replace(/</g,'&lt;').replace(/"/g,'&quot;')}"
+                placeholder="e.g. Most goals scored"
+                style="flex:1;min-width:160px;${inputStyle}">
+              <button class="btn btn-danger btn-sm" data-del-tb="${i}-${j}" data-rid="${qRid}" style="padding:2px 7px;font-size:11px">✕</button>
+            </div>`).join('')}
+          <button class="btn btn-sm btn-outline" data-add-tb="${i}" data-rid="${qRid}"
+            style="font-size:11px;margin-top:4px;border-color:rgba(255,255,255,0.2);color:var(--muted)">＋ Add tiebreaker</button>
         </div>
       </div>`;
     }).join('');
@@ -6308,6 +6348,8 @@ function attachEvents() {
       const qOpts   = qType === 'overunder'
         ? ['Over','Under','Abstain']
         : (optsEl?.value.split(',').map(o => o.trim()).filter(Boolean) || qs[i].opts);
+      const tiebreakers = Array.from(document.querySelectorAll(`[data-eq-tb^="${i}-"]`))
+        .map(el => el.value.trim()).filter(Boolean);
       qs[i] = {
         ...qs[i],
         text:  textEl?.value || qs[i].text,
@@ -6315,7 +6357,37 @@ function attachEvents() {
         opts:  qOpts,
         type:  qType,
         wager: qWager,
+        tiebreakers: tiebreakers.length ? tiebreakers : undefined,
       };
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  // Admin: add tiebreaker row
+  document.querySelectorAll('[data-add-tb]').forEach(btn => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.addTb);
+      const rid = btn.dataset.rid;
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      const existing = Array.from(document.querySelectorAll(`[data-eq-tb^="${i}-"]`)).map(el => el.value.trim());
+      qs[i].tiebreakers = [...existing, ''];
+      S.customBonusQs[rid] = qs;
+      saveCustomQuestions();
+      render();
+    };
+  });
+
+  // Admin: remove tiebreaker row
+  document.querySelectorAll('[data-del-tb]').forEach(btn => {
+    btn.onclick = () => {
+      const [qi, j] = btn.dataset.delTb.split('-').map(Number);
+      const rid = btn.dataset.rid;
+      const qs = JSON.parse(JSON.stringify(getActiveQuestions(rid)));
+      const existing = Array.from(document.querySelectorAll(`[data-eq-tb^="${qi}-"]`)).map(el => el.value.trim());
+      existing.splice(j, 1);
+      qs[qi].tiebreakers = existing.length ? existing : undefined;
       S.customBonusQs[rid] = qs;
       saveCustomQuestions();
       render();
