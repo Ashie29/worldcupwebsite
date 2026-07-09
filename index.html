@@ -3568,6 +3568,9 @@ function renderAdmin() {
                              : (missingBonus && bonusAlreadyLocked) ? '#ef5350'
                              : (missingBonus && bonusWarn) ? '#ffb74d'
                              : 'var(--faint)';
+              const wagerTag = (bq.wager && ans.answer && ans.answer !== 'Abstain')
+                ? ` <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">[💰 ${Number(ans.wager)||0} pts wagered]</span>`
+                : '';
               const ansLabel = ans.answer ? `${ans.answer} ${icon}`
                              : (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
                              : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon'
@@ -3575,7 +3578,7 @@ function renderAdmin() {
               return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${bonusRowBg}
                 border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
                 <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
-                <span style="color:${ansColor};flex-shrink:0">${ansLabel}</span>
+                <span style="color:${ansColor};flex-shrink:0">${ansLabel}${wagerTag}</span>
               </div>`;
             }).join('');
             picksContent = matchRows +
