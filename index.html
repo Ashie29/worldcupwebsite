@@ -1114,9 +1114,17 @@ function calcScore(uid) {
       const correct = S.bonusResults[rid]?.[bq.id];
       if (!ans || !correct || !correct.answer || !ans.answer) continue;
       const isOU     = bq.type === 'overunder';
+      const isMC     = bq.type === 'multicheck';
       const hasWager = bq.wager === true;
       const stake    = hasWager ? (Number(ans.wager) || 0) : (bq.pts * bMult);
-      if (isOU) {
+      if (isMC) {
+        // +2 per correct pick, -1 per wrong pick, 0 for unpicked (both right/wrong)
+        const correctSet = new Set((correct.answer || '').split(',').map(s => s.trim()).filter(Boolean));
+        const picked     = new Set((ans.answer || '').split(',').map(s => s.trim()).filter(Boolean));
+        let mcPts = 0;
+        for (const p of picked) mcPts += correctSet.has(p) ? 2 : -1;
+        total += mcPts * bMult;
+      } else if (isOU) {
         if (ans.answer === 'Abstain') { /* 0 pts */ }
         else if (ans.answer === correct.answer) total += stake;
         else total -= stake;
@@ -2665,32 +2673,59 @@ function renderPicks() {
     const bres   = S.bonusResults[rid]?.[bq.id]?.answer || '';
     const wager  = Number(ans.wager) || 0;
     const isOU   = bq.type === 'overunder';
+    const isMC   = bq.type === 'multicheck';
     const hasWager = bq.wager === true;
     const displayOpts = isOU ? ['Over','Under','Abstain'] : bq.opts;
 
     const ouColors = { Over:'#90caf9', Under:'#ef9a9a', Abstain:'var(--muted)' };
 
-    const optsHtml = displayOpts.map(opt => {
-      const isSel = ans.answer === opt;
-      let cls = '';
-      if (isSel && bres) {
-        if (opt === 'Abstain') cls = 'sel';
-        else cls = bres === opt ? 'correct' : 'wrong';
-      } else if (isSel) cls = 'sel';
-      const ouStyle = isOU ? `style="border-color:${ouColors[opt]};color:${cls?'':''+ouColors[opt]}"` : '';
-      return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${bonusRO?'disabled':''} ${ouStyle}>${opt}</button>`;
-    }).join('');
+    let optsHtml = '';
+    if (isMC) {
+      const picked     = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
+      const correctSet = bres ? new Set(bres.split(',').map(s=>s.trim()).filter(Boolean)) : null;
+      const checkboxBtns = displayOpts.map(opt => {
+        const isSel = picked.has(opt);
+        let cls = '';
+        if (isSel && correctSet) cls = correctSet.has(opt) ? 'correct' : 'wrong';
+        else if (isSel) cls = 'sel';
+        const icon = isSel ? '☑' : '☐';
+        return `<button class="bopt ${cls}" data-action="bonus-mc" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${bonusRO?'disabled':''}
+          style="border-radius:3px;display:inline-flex;align-items:center;gap:6px;font-family:inherit">
+          <span style="font-size:14px;line-height:1">${icon}</span>${opt}</button>`;
+      }).join('');
+      optsHtml = `<div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:6px">SELECT ALL THAT APPLY</div>${checkboxBtns}`;
+    } else {
+      optsHtml = displayOpts.map(opt => {
+        const isSel = ans.answer === opt;
+        let cls = '';
+        if (isSel && bres) {
+          if (opt === 'Abstain') cls = 'sel';
+          else cls = bres === opt ? 'correct' : 'wrong';
+        } else if (isSel) cls = 'sel';
+        const ouStyle = isOU ? `style="border-color:${ouColors[opt]};color:${cls?'':''+ouColors[opt]}"` : '';
+        return `<button class="bopt ${cls}" data-action="bonus" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${bonusRO?'disabled':''} ${ouStyle}>${opt}</button>`;
+      }).join('');
+    }
 
     // Scoring hint
     let hint = '';
     if (bres) {
-      const correct = ans.answer && ans.answer !== 'Abstain' && ans.answer === bres;
-      const wrong   = ans.answer && ans.answer !== 'Abstain' && ans.answer !== bres;
-      const stake   = hasWager ? wager : bq.pts;
-      if (correct) hint = `<span class="pts-badge pts-ok">+${stake} pts ✅</span>`;
-      else if (wrong && isOU) hint = `<span class="pts-badge pts-bad">−${stake} pts ❌</span>`;
-      else if (wrong) hint = `<span class="pts-badge pts-bad">0 pts ❌</span>`;
-      else if (ans.answer === 'Abstain') hint = `<span class="pts-badge" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border2)">0 pts (Abstain)</span>`;
+      if (isMC) {
+        const correctSet = new Set(bres.split(',').map(s=>s.trim()).filter(Boolean));
+        const picked     = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
+        let mcPts = 0;
+        for (const p of picked) mcPts += correctSet.has(p) ? 2 : -1;
+        const scaled = mcPts * bMult;
+        if (picked.size) hint = `<span class="pts-badge ${scaled>=0?'pts-ok':'pts-bad'}">${scaled>=0?'+':''}${scaled} pts</span>`;
+      } else {
+        const correct = ans.answer && ans.answer !== 'Abstain' && ans.answer === bres;
+        const wrong   = ans.answer && ans.answer !== 'Abstain' && ans.answer !== bres;
+        const stake   = hasWager ? wager : bq.pts;
+        if (correct) hint = `<span class="pts-badge pts-ok">+${stake} pts ✅</span>`;
+        else if (wrong && isOU) hint = `<span class="pts-badge pts-bad">−${stake} pts ❌</span>`;
+        else if (wrong) hint = `<span class="pts-badge pts-bad">0 pts ❌</span>`;
+        else if (ans.answer === 'Abstain') hint = `<span class="pts-badge" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border2)">0 pts (Abstain)</span>`;
+      }
     }
 
     // Wager slider — hidden when Abstain is selected
@@ -2706,6 +2741,8 @@ function renderPicks() {
 
     const ptsLabel = hasWager
       ? `<span style="color:var(--muted);font-size:10px">[wager 0–10]</span>`
+      : isMC
+      ? `<span style="color:var(--gold);font-size:10px">[+2 correct · −1 wrong · ×${bMult} mult]</span>`
       : `<span style="color:var(--gold);font-size:10px">[${bq.pts} pts${isOU ? ' · wrong −'+bq.pts : ''}]</span>`;
 
     const tbHtml = (bq.tiebreakers?.length) ? `
@@ -3152,10 +3189,23 @@ function renderAdmin() {
 
       const bonusResultsHtml = getActiveQuestions(rid).map(bq => {
         const correct = S.bonusResults[rid]?.[bq.id]?.answer || '';
+        const typeTag = bq.type === 'overunder' ? ' <span style="font-size:9px;color:#90caf9;font-family:var(--mono)">[O/U]</span>'
+          : bq.type === 'multicheck' ? ' <span style="font-size:9px;color:#ce93d8;font-family:var(--mono)">[MULTI]</span>' : '';
+        const wagerTag = bq.wager ? ' <span style="font-size:9px;color:var(--gold);font-family:var(--mono)">[WAGER]</span>' : '';
+        if (bq.type === 'multicheck') {
+          const correctSet = new Set(correct.split(',').map(s => s.trim()).filter(Boolean));
+          const checkboxes = bq.opts.map(o => `
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" data-action="mc-result-check" data-rid="${rid}" data-qid="${bq.id}" data-opt="${o}" ${correctSet.has(o)?'checked':''}>
+              ${o}
+            </label>`).join('');
+          return `<div class="admin-match-row" style="flex-wrap:wrap;gap:8px">
+            <span class="admin-match-label" style="font-size:11px">${bq.text}${typeTag}${wagerTag}</span>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">${checkboxes}</div>
+          </div>`;
+        }
         const resultOpts = bq.type === 'overunder' ? ['Over','Under'] : bq.opts;
         const opts = resultOpts.map(o => `<option value="${o}" ${correct===o?'selected':''}>${o}</option>`).join('');
-        const typeTag = bq.type === 'overunder' ? ' <span style="font-size:9px;color:#90caf9;font-family:var(--mono)">[O/U]</span>' : '';
-        const wagerTag = bq.wager ? ' <span style="font-size:9px;color:var(--gold);font-family:var(--mono)">[WAGER]</span>' : '';
         return `<div class="admin-match-row">
           <span class="admin-match-label" style="font-size:11px">${bq.text}${typeTag}${wagerTag}</span>
           <select class="admin-select" data-action="bonus-result" data-rid="${rid}" data-qid="${bq.id}">
@@ -3571,10 +3621,28 @@ function renderAdmin() {
               const wagerTag = (bq.wager && ans.answer && ans.answer !== 'Abstain')
                 ? ` <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">[💰 ${Number(ans.wager)||0} pts wagered]</span>`
                 : '';
-              const ansLabel = ans.answer ? `${ans.answer} ${icon}`
-                             : (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
-                             : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon'
-                             : '—';
+              let ansLabel;
+              if (bq.type === 'multicheck') {
+                const picked     = (ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean);
+                const correctSet = S.bonusResults[rid]?.[bq.id]?.answer
+                  ? new Set(S.bonusResults[rid][bq.id].answer.split(',').map(s=>s.trim()).filter(Boolean)) : null;
+                if (!picked.length) {
+                  ansLabel = (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
+                           : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon' : '—';
+                } else {
+                  ansLabel = picked.map(p => {
+                    if (!correctSet) return p;
+                    return correctSet.has(p)
+                      ? `<span style="color:#a5d6a7">${p} ✅</span>`
+                      : `<span style="color:#ef9a9a">${p} ❌</span>`;
+                  }).join(', ');
+                }
+              } else {
+                ansLabel = ans.answer ? `${ans.answer} ${icon}`
+                         : (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
+                         : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon'
+                         : '—';
+              }
               return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${bonusRowBg}
                 border-bottom:1px solid var(--border2);font-size:11px;flex-wrap:wrap">
                 <span style="color:var(--muted);flex:1;min-width:140px;word-break:break-word">${bq.text}</span>
@@ -3647,7 +3715,7 @@ function renderAdmin() {
     // ── Active questions editor ──────────────────────────────────
     const activeEditorRows = activeQs.map((q, i) => {
       const isOU = q.type === 'overunder';
-      const inputStyle = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono)';
+      const inputStyle = 'background:#1e2230;border:1px solid rgba(255,255,255,0.1);color:var(--text);padding:5px 8px;font-size:11px;font-family:var(--mono)';
       return `
       <div style="padding:12px 0;border-bottom:1px solid var(--border2)">
         <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px">
@@ -3666,8 +3734,9 @@ function renderAdmin() {
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-left:28px;margin-bottom:6px">
           <span style="font-size:10px;color:var(--muted);flex-shrink:0">Type:</span>
           <select data-eq-type="${i}" style="${inputStyle}">
-            <option value="normal" ${!isOU?'selected':''}>Normal</option>
-            <option value="overunder" ${isOU?'selected':''}>Over / Under</option>
+            <option value="normal" ${q.type==='normal'||!q.type?'selected':''}>Multiple Choice</option>
+            <option value="overunder" ${q.type==='overunder'?'selected':''}>Over / Under</option>
+            <option value="multicheck" ${q.type==='multicheck'?'selected':''}>Multi-Select</option>
           </select>
           <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;user-select:none">
             <input type="checkbox" data-eq-wager="${i}" ${q.wager?'checked':''}>
@@ -5939,12 +6008,24 @@ function attachEvents() {
     };
   });
 
-  // Bonus option buttons
+  // Bonus option buttons (single-select)
   document.querySelectorAll('[data-action="bonus"]').forEach(btn => {
     btn.onclick = () => {
       const { rid, qid, opt } = btn.dataset;
       const cur = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
       upsertBonusAnswer(rid, qid, opt, cur.wager||0);
+      render();
+    };
+  });
+
+  // Multi-select bonus option buttons (toggle individual options)
+  document.querySelectorAll('[data-action="bonus-mc"]').forEach(btn => {
+    btn.onclick = () => {
+      const { rid, qid, opt } = btn.dataset;
+      const cur = S.bonusAnswers[S.user.id]?.[rid]?.[qid] || {};
+      const picked = new Set((cur.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
+      if (picked.has(opt)) picked.delete(opt); else picked.add(opt);
+      upsertBonusAnswer(rid, qid, [...picked].join(','), cur.wager||0);
       render();
     };
   });
@@ -6019,6 +6100,16 @@ function attachEvents() {
         render();
       };
     });
+  });
+
+  // Admin: multi-select result checkboxes
+  document.querySelectorAll('[data-action="mc-result-check"]').forEach(cb => {
+    cb.onchange = async () => {
+      const { rid, qid } = cb.dataset;
+      const all = document.querySelectorAll(`[data-action="mc-result-check"][data-rid="${rid}"][data-qid="${qid}"]`);
+      const checked = Array.from(all).filter(c => c.checked).map(c => c.dataset.opt);
+      await upsertBonusResult(rid, qid, checked.join(','));
+    };
   });
 
   // Admin: bonus result dropdown
