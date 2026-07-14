@@ -742,6 +742,26 @@ function getMultipliers(rid) {
   return { match: S.multipliers[rid]?.match ?? 1, bonus: S.multipliers[rid]?.bonus ?? 1 };
 }
 
+// Parses tri-state multicheck result: "correct:A,C|wrong:B" → {correctSet, wrongSet}
+function parseMcResult(answer) {
+  const correctSet = new Set();
+  const wrongSet   = new Set();
+  (answer || '').split('|').forEach(part => {
+    const p = part.trim();
+    if (p.startsWith('correct:')) p.slice(8).split(',').map(s=>s.trim()).filter(Boolean).forEach(v=>correctSet.add(v));
+    else if (p.startsWith('wrong:'))  p.slice(6).split(',').map(s=>s.trim()).filter(Boolean).forEach(v=>wrongSet.add(v));
+  });
+  return { correctSet, wrongSet };
+}
+
+// Serialises correctSet/wrongSet back to storage string
+function serializeMcResult(correctSet, wrongSet) {
+  const parts = [];
+  if (correctSet.size) parts.push('correct:' + [...correctSet].join(','));
+  if (wrongSet.size)   parts.push('wrong:'   + [...wrongSet].join(','));
+  return parts.join('|');
+}
+
 function saveCustomQuestions() {
   localStorage.setItem('wc26:customBonusQs', JSON.stringify(S.customBonusQs));
   // Persist each round's custom questions to round_settings so all devices see them
@@ -1118,11 +1138,15 @@ function calcScore(uid) {
       const hasWager = bq.wager === true;
       const stake    = hasWager ? (Number(ans.wager) || 0) : (bq.pts * bMult);
       if (isMC) {
-        // +2 per correct pick, -1 per wrong pick, 0 for unpicked (both right/wrong)
-        const correctSet = new Set((correct.answer || '').split(',').map(s => s.trim()).filter(Boolean));
-        const picked     = new Set((ans.answer || '').split(',').map(s => s.trim()).filter(Boolean));
+        // +2 per correct pick, -1 per explicitly-wrong pick, 0 for pending/unpicked
+        const { correctSet, wrongSet } = parseMcResult(correct.answer);
+        const picked = new Set((ans.answer || '').split(',').map(s => s.trim()).filter(Boolean));
         let mcPts = 0;
-        for (const p of picked) mcPts += correctSet.has(p) ? 2 : -1;
+        for (const p of picked) {
+          if (correctSet.has(p)) mcPts += 2;
+          else if (wrongSet.has(p)) mcPts -= 1;
+          // pending (neither set) = 0
+        }
         total += mcPts * bMult;
       } else if (isOU) {
         if (ans.answer === 'Abstain') { /* 0 pts */ }
@@ -2681,13 +2705,15 @@ function renderPicks() {
 
     let optsHtml = '';
     if (isMC) {
-      const picked     = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
-      const correctSet = bres ? new Set(bres.split(',').map(s=>s.trim()).filter(Boolean)) : null;
+      const picked = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
+      const { correctSet: mcCorrect, wrongSet: mcWrong } = bres ? parseMcResult(bres) : { correctSet: new Set(), wrongSet: new Set() };
+      const hasAnyResult = bres && (mcCorrect.size || mcWrong.size);
       const checkboxBtns = displayOpts.map(opt => {
         const isSel = picked.has(opt);
         let cls = '';
-        if (isSel && correctSet) cls = correctSet.has(opt) ? 'correct' : 'wrong';
-        else if (isSel) cls = 'sel';
+        if (isSel && hasAnyResult) {
+          cls = mcCorrect.has(opt) ? 'correct' : mcWrong.has(opt) ? 'wrong' : 'sel'; // sel = pending
+        } else if (isSel) cls = 'sel';
         const icon = isSel ? '☑' : '☐';
         return `<button class="bopt ${cls}" data-action="bonus-mc" data-rid="${rid}" data-qid="${bq.id}" data-opt="${opt}" ${bonusRO?'disabled':''}
           style="border-radius:3px;display:inline-flex;align-items:center;gap:6px;font-family:inherit">
@@ -2711,12 +2737,17 @@ function renderPicks() {
     let hint = '';
     if (bres) {
       if (isMC) {
-        const correctSet = new Set(bres.split(',').map(s=>s.trim()).filter(Boolean));
-        const picked     = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
+        const { correctSet: hcSet, wrongSet: hwSet } = parseMcResult(bres);
+        const picked = new Set((ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean));
         let mcPts = 0;
-        for (const p of picked) mcPts += correctSet.has(p) ? 2 : -1;
+        for (const p of picked) {
+          if (hcSet.has(p)) mcPts += 2;
+          else if (hwSet.has(p)) mcPts -= 1;
+        }
         const scaled = mcPts * bMult;
-        if (picked.size) hint = `<span class="pts-badge ${scaled>=0?'pts-ok':'pts-bad'}">${scaled>=0?'+':''}${scaled} pts</span>`;
+        const hasResolved = picked.size && [...picked].some(p => hcSet.has(p) || hwSet.has(p));
+        if (hasResolved) hint = `<span class="pts-badge ${scaled>=0?'pts-ok':'pts-bad'}">${scaled>=0?'+':''}${scaled} pts (partial)</span>`;
+        else if (picked.size) hint = `<span class="pts-badge" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border2)">results pending</span>`;
       } else {
         const correct = ans.answer && ans.answer !== 'Abstain' && ans.answer === bres;
         const wrong   = ans.answer && ans.answer !== 'Abstain' && ans.answer !== bres;
@@ -3193,15 +3224,25 @@ function renderAdmin() {
           : bq.type === 'multicheck' ? ' <span style="font-size:9px;color:#ce93d8;font-family:var(--mono)">[MULTI]</span>' : '';
         const wagerTag = bq.wager ? ' <span style="font-size:9px;color:var(--gold);font-family:var(--mono)">[WAGER]</span>' : '';
         if (bq.type === 'multicheck') {
-          const correctSet = new Set(correct.split(',').map(s => s.trim()).filter(Boolean));
-          const checkboxes = bq.opts.map(o => `
-            <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" data-action="mc-result-check" data-rid="${rid}" data-qid="${bq.id}" data-opt="${o}" ${correctSet.has(o)?'checked':''}>
-              ${o}
-            </label>`).join('');
+          const { correctSet: mcCS, wrongSet: mcWS } = parseMcResult(correct);
+          const optBtns = bq.opts.map(o => {
+            const state = mcCS.has(o) ? 'correct' : mcWS.has(o) ? 'wrong' : 'pending';
+            const nextState = state === 'pending' ? 'correct' : state === 'correct' ? 'wrong' : 'pending';
+            const stateStyle = state === 'correct'
+              ? 'background:rgba(102,187,106,0.2);border-color:#66bb6a;color:#66bb6a'
+              : state === 'wrong'
+              ? 'background:rgba(239,83,80,0.2);border-color:#ef5350;color:#ef5350'
+              : 'background:transparent;border-color:rgba(255,255,255,0.2);color:var(--muted)';
+            const stateIcon = state === 'correct' ? '✓' : state === 'wrong' ? '✗' : '?';
+            return `<button data-action="mc-result-cycle" data-rid="${rid}" data-qid="${bq.id}" data-opt="${o}" data-next="${nextState}"
+              style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid;border-radius:2px;cursor:pointer;font-size:12px;font-family:inherit;${stateStyle}">
+              <span style="font-family:var(--mono);font-size:11px">${stateIcon}</span>${o}
+            </button>`;
+          }).join('');
           return `<div class="admin-match-row" style="flex-wrap:wrap;gap:8px">
             <span class="admin-match-label" style="font-size:11px">${bq.text}${typeTag}${wagerTag}</span>
-            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">${checkboxes}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px;width:100%;font-family:var(--mono)">Click to cycle: ? pending → ✓ correct → ✗ wrong → ?</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${optBtns}</div>
           </div>`;
         }
         const resultOpts = bq.type === 'overunder' ? ['Over','Under'] : bq.opts;
@@ -3624,17 +3665,17 @@ function renderAdmin() {
               let ansLabel;
               if (bq.type === 'multicheck') {
                 const picked     = (ans.answer||'').split(',').map(s=>s.trim()).filter(Boolean);
-                const correctSet = S.bonusResults[rid]?.[bq.id]?.answer
-                  ? new Set(S.bonusResults[rid][bq.id].answer.split(',').map(s=>s.trim()).filter(Boolean)) : null;
+                const rawRes = S.bonusResults[rid]?.[bq.id]?.answer || '';
+                const { correctSet, wrongSet: mcWrongSet } = rawRes ? parseMcResult(rawRes) : { correctSet: null, wrongSet: null };
                 if (!picked.length) {
                   ansLabel = (missingBonus && bonusAlreadyLocked) ? '✗ no answer — locked'
                            : (missingBonus && bonusWarn) ? '⚠ no answer — closing soon' : '—';
                 } else {
                   ansLabel = picked.map(p => {
                     if (!correctSet) return p;
-                    return correctSet.has(p)
-                      ? `<span style="color:#a5d6a7">${p} ✅</span>`
-                      : `<span style="color:#ef9a9a">${p} ❌</span>`;
+                    if (correctSet.has(p)) return `<span style="color:#a5d6a7">${p} ✅</span>`;
+                    if (mcWrongSet && mcWrongSet.has(p)) return `<span style="color:#ef9a9a">${p} ❌</span>`;
+                    return `<span style="color:var(--muted)">${p} ⏳</span>`;
                   }).join(', ');
                 }
               } else {
@@ -4638,7 +4679,9 @@ function renderBonusRecap(rid, opts = {}) {
   const qBlocks = answeredQs.map(bq => {
     const correctAnswer = S.bonusResults[rid][bq.id].answer;
     const isOU  = bq.type === 'overunder';
+    const isMCQ = bq.type === 'multicheck';
     const hasWager = bq.wager === true;
+    const { correctSet: recapCS, wrongSet: recapWS } = isMCQ ? parseMcResult(correctAnswer) : { correctSet: new Set(), wrongSet: new Set() };
 
     const rows = players.map(p => {
       const ua   = S.bonusAnswers[p.id]?.[rid]?.[bq.id];
@@ -4652,7 +4695,16 @@ function renderBonusRecap(rid, opts = {}) {
       const ans = ua.answer;
       const stake = hasWager ? (Number(ua.wager) || 0) : (bq.pts * bMult);
       let pts = 0, correct = false;
-      if (isOU) {
+      if (isMCQ) {
+        const picked = new Set(ans.split(',').map(s=>s.trim()).filter(Boolean));
+        let mcPts = 0;
+        for (const p of picked) {
+          if (recapCS.has(p)) mcPts += 2;
+          else if (recapWS.has(p)) mcPts -= 1;
+        }
+        pts = mcPts * bMult;
+        correct = pts > 0;
+      } else if (isOU) {
         if (ans === 'Abstain') { pts = 0; correct = false; }
         else if (ans === correctAnswer) { pts = stake; correct = true; }
         else { pts = -stake; correct = false; }
@@ -4665,20 +4717,32 @@ function renderBonusRecap(rid, opts = {}) {
         : pts < 0
           ? `<span style="color:#ef5350;font-family:var(--mono);font-weight:700">${pts}</span>`
           : `<span style="color:var(--faint);font-family:var(--mono)">0</span>`;
-      const ansColor = correct ? '#66bb6a' : isOU && ans === 'Abstain' ? 'var(--muted)' : '#ef5350';
+      let ansDisplay = ans;
+      if (isMCQ) {
+        ansDisplay = ans.split(',').map(s => s.trim()).filter(Boolean).map(p =>
+          recapCS.has(p) ? `<span style="color:#66bb6a">${p} ✓</span>`
+          : recapWS.has(p) ? `<span style="color:#ef5350">${p} ✗</span>`
+          : `<span style="color:var(--muted)">${p} ⏳</span>`
+        ).join(', ');
+      }
+      const ansColor = isMCQ ? 'var(--text)' : correct ? '#66bb6a' : isOU && ans === 'Abstain' ? 'var(--muted)' : '#ef5350';
       const wagerNote = hasWager && ua.wager ? `<span style="font-size:9px;color:var(--muted);font-family:var(--mono)"> (w:${ua.wager})</span>` : '';
       return `<tr style="border-top:1px solid var(--border2)">
         <td style="padding:5px 8px;font-size:12px;color:var(--text)">${name}</td>
-        <td style="padding:5px 8px;font-size:12px;color:${ansColor};font-weight:${correct?'700':'400'}">${ans}${wagerNote}</td>
+        <td style="padding:5px 8px;font-size:12px;color:${ansColor};font-weight:${correct?'700':'400'}">${ansDisplay}${wagerNote}</td>
         <td style="padding:5px 8px;text-align:right">${ptsStr}</td>
       </tr>`;
     }).join('');
 
+    const answerLabel = isMCQ
+      ? [...recapCS].map(o=>`<span style="color:#66bb6a">${o} ✓</span>`).join(' ') + (recapWS.size ? ' ' + [...recapWS].map(o=>`<span style="color:#ef5350">${o} ✗</span>`).join(' ') : '') + ((!recapCS.size && !recapWS.size) ? '<span style="color:var(--muted)">pending</span>' : '')
+      : `<span style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--display)">${correctAnswer}</span>`;
+
     return `<div style="margin-bottom:${compact?'10':'14'}px">
       <div style="font-size:12px;color:var(--text);line-height:1.4;margin-bottom:5px">${bq.text}</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <span style="font-size:9px;letter-spacing:0.08em;color:var(--muted);font-family:var(--mono)">ANSWER</span>
-        <span style="font-size:13px;font-weight:700;color:var(--gold);font-family:var(--display)">${correctAnswer}</span>
+        ${answerLabel}
         <span style="font-size:9px;color:var(--muted);font-family:var(--mono)">${bq.pts} pts${hasWager?' (wager)':''}</span>
       </div>
       <div style="overflow-x:auto">
@@ -4695,6 +4759,102 @@ function renderBonusRecap(rid, opts = {}) {
   });
 
   return qBlocks.join(`<div style="border-top:1px solid var(--border2);margin:${compact?'10':'14'}px 0"></div>`);
+}
+
+// ── Bonus Guess Distribution (visible after lock, current round only) ──
+function renderGuessDistribution() {
+  const players = S.profiles.filter(p => !p.is_admin);
+  const total = players.length || 1;
+
+  // Find the most recent round that is bonus-locked and has at least one answer
+  const lockedRounds = Object.values(ROUNDS).filter(round => {
+    if (!isBonusLocked(round.id)) return false;
+    const qs = getActiveQuestions(round.id);
+    return qs.some(bq => players.some(p => S.bonusAnswers[p.id]?.[round.id]?.[bq.id]?.answer));
+  });
+  if (!lockedRounds.length) return '';
+  // Use the most recent locked round (last by first-match kickoff)
+  const round = lockedRounds.sort((a, b) => {
+    const ka = new Date(getKickoff(a.matches[0]?.id, a.matches[0]?.kickoff) || 0).getTime();
+    const kb = new Date(getKickoff(b.matches[0]?.id, b.matches[0]?.kickoff) || 0).getTime();
+    return ka - kb;
+  })[lockedRounds.length - 1];
+
+  const blocks = [round].map(round => {
+    const qs = getActiveQuestions(round.id);
+    if (!qs.length) return null;
+
+    const qBlocks = qs.map(bq => {
+      const isMCQ = bq.type === 'multicheck';
+      const isOU  = bq.type === 'overunder';
+      const opts  = isOU ? ['Over','Under','Abstain'] : bq.opts;
+      const ouColors = { Over:'#90caf9', Under:'#ef9a9a', Abstain:'rgba(255,255,255,0.2)' };
+      const barColor = isMCQ ? '#ce93d8' : isOU ? null : 'var(--gold)';
+
+      let bars;
+      if (isMCQ) {
+        const counts = {};
+        opts.forEach(o => counts[o] = 0);
+        players.forEach(p => {
+          (S.bonusAnswers[p.id]?.[round.id]?.[bq.id]?.answer || '')
+            .split(',').map(s => s.trim()).filter(Boolean)
+            .forEach(o => { if (o in counts) counts[o]++; });
+        });
+        bars = opts.map(o => {
+          const n = counts[o]; const pct = Math.round((n / total) * 100);
+          return `<div style="margin-bottom:5px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+              <span style="color:var(--text)">${o}</span>
+              <span style="color:var(--muted);font-family:var(--mono)">${n}/${total}</span>
+            </div>
+            <div style="height:5px;background:var(--bg2);border:1px solid var(--border2);position:relative">
+              <div style="position:absolute;left:0;top:0;bottom:0;background:#ce93d8;width:${pct}%"></div>
+            </div>
+          </div>`;
+        }).join('');
+      } else {
+        const counts = {};
+        opts.forEach(o => counts[o] = 0);
+        players.forEach(p => {
+          const a = S.bonusAnswers[p.id]?.[round.id]?.[bq.id]?.answer;
+          if (a && a in counts) counts[a]++;
+        });
+        bars = opts.map(o => {
+          const n = counts[o]; const pct = Math.round((n / total) * 100);
+          const c = barColor || ouColors[o];
+          return `<div style="margin-bottom:5px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+              <span style="color:${isOU ? (ouColors[o]||'var(--text)') : 'var(--text)'}">${o}</span>
+              <span style="color:var(--muted);font-family:var(--mono)">${n}/${total}</span>
+            </div>
+            <div style="height:5px;background:var(--bg2);border:1px solid var(--border2);position:relative">
+              <div style="position:absolute;left:0;top:0;bottom:0;background:${c};width:${pct}%"></div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      const typeTag = isMCQ ? ` <span style="font-size:9px;color:#ce93d8;font-family:var(--mono)">[MULTI]</span>`
+        : isOU ? ` <span style="font-size:9px;color:#90caf9;font-family:var(--mono)">[O/U]</span>` : '';
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text);margin-bottom:5px;line-height:1.3">${bq.text}${typeTag}</div>
+        ${bars}
+      </div>`;
+    }).join('');
+
+    return qBlocks || null;
+  })[0];
+
+  if (!blocks) return '';
+
+  return `<div class="card" style="margin-bottom:16px">
+    <details>
+      <summary style="cursor:pointer;font-size:11px;color:var(--muted);letter-spacing:0.05em;user-select:none">
+        📊 GUESS DISTRIBUTION — ${round.label.toUpperCase()}
+      </summary>
+      <div style="margin-top:12px">${blocks}</div>
+    </details>
+  </div>`;
 }
 
 // ── Live Bonus Trackers (admin-configurable progress for any bonus question) ──
@@ -4714,7 +4874,7 @@ function renderBonusTrackers() {
       const enabled = !!prog.enabled;
       // Non-admins only see enabled trackers for locked rounds
       if (!isAdminUser && (!locked || !enabled)) return;
-      items.push({ round, bq, prog, enabled, isOU: bq.type === 'overunder', locked });
+      items.push({ round, bq, prog, enabled, isOU: bq.type === 'overunder', isMCQ: bq.type === 'multicheck', locked });
     });
   });
 
@@ -4722,10 +4882,23 @@ function renderBonusTrackers() {
 
   // ── Visible trackers (shown to everyone) — one card each ───────
   const visible = items.filter(it => it.enabled);
-  const visibleCards = visible.map(({ round, bq, prog, isOU }) => {
+  const visibleCards = visible.map(({ round, bq, prog, isOU, isMCQ }) => {
     const isCounter = isOU || prog.mode === 'counter';
     let body;
-    if (isCounter) {
+    if (isMCQ) {
+      // Checklist mode: show question's own options with ✓/✗
+      const cl = prog.checklist || {};
+      const opts = bq.opts || [];
+      body = opts.length ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-top:8px">
+        ${opts.map(o => {
+          const ticked = !!cl[o];
+          return `<div style="display:flex;align-items:center;gap:5px;font-size:12px;padding:2px 0">
+            <span style="color:${ticked?'#66bb6a':'var(--muted)'};font-family:var(--mono);font-size:11px">${ticked?'✓':'✗'}</span>
+            <span style="color:${ticked?'var(--text)':'var(--muted)'}">${o}</span>
+          </div>`;
+        }).join('')}
+      </div>` : `<div style="font-size:10px;color:var(--muted);margin-top:8px">No options defined</div>`;
+    } else if (isCounter) {
       const target  = Number(prog.target)  || 0;
       const current = Number(prog.current) || 0;
       if (target > 0) {
@@ -4756,8 +4929,24 @@ function renderBonusTrackers() {
 
   // ── Admin management (collapsed by default) ───────────────────
   const manageHtml = isAdminUser ? (() => {
-    const rows = items.map(({ round, bq, prog, enabled, isOU }) => {
+    const rows = items.map(({ round, bq, prog, enabled, isOU, isMCQ }) => {
       const optsList = isOU ? ['Over','Under'] : (bq.opts || []);
+      const clData = prog.checklist || {};
+      const checklistHtml = isMCQ ? (() => {
+        const opts = bq.opts || [];
+        const btns = opts.map(o => {
+          const ticked = !!clData[o];
+          return `<button data-action="mc-checklist-toggle" data-rid="${round.id}" data-qid="${bq.id}" data-opt="${o}"
+            style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid;border-radius:2px;cursor:pointer;font-size:12px;font-family:inherit;
+            ${ticked ? 'background:rgba(102,187,106,0.2);border-color:#66bb6a;color:#66bb6a' : 'background:transparent;border-color:rgba(255,255,255,0.2);color:var(--muted)'}">
+            <span style="font-family:var(--mono);font-size:11px">${ticked ? '✓' : '✗'}</span>${o}
+          </button>`;
+        }).join('');
+        return `<div style="margin-top:8px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:var(--mono)">CLICK OPTION TO TOGGLE HIT / NOT YET (saves instantly)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${btns}</div>
+        </div>`;
+      })() : '';
       return `<div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border2)">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--text)">${bq.text}</span>
@@ -4767,7 +4956,7 @@ function renderBonusTrackers() {
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
             <input type="checkbox" data-action="bonus-progress-enabled" data-rid="${round.id}" data-qid="${bq.id}" ${enabled?'checked':''}> Show on dashboard
           </label>
-          ${isOU ? '' : `
+          ${isOU || isMCQ ? '' : `
           <span class="wager-hint">Display:</span>
           <select data-action="bonus-progress-mode" data-rid="${round.id}" data-qid="${bq.id}"
             style="height:26px;background:rgba(232,213,163,.05);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:0 6px;border-radius:0">
@@ -4776,7 +4965,7 @@ function renderBonusTrackers() {
           </select>
           `}
         </div>
-        ${isOU || prog.mode === 'counter' ? `
+        ${isMCQ ? checklistHtml : isOU || prog.mode === 'counter' ? `
         <div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">
           <span class="wager-hint">Current:</span>
           <input type="number" step="0.5" value="${prog.current ?? ''}" data-action="bonus-progress-current" data-rid="${round.id}" data-qid="${bq.id}"
@@ -4976,7 +5165,8 @@ function renderDashboard() {
     </div>`;
   })();
 
-  const bonusTrackersHtml = renderBonusTrackers();
+  const bonusTrackersHtml  = renderBonusTrackers();
+  const guessDistHtml      = renderGuessDistribution();
 
   // ── Most Positions Gained card ────────────────────────────────────
   const moveCardHtml = (() => {
@@ -5118,7 +5308,7 @@ function renderDashboard() {
         ${bonusRecapCardsHtml}
         ${roundsTableHtml}
       </div>
-      ${bonusTrackersHtml ? `<div class="dashboard-side">${bonusTrackersHtml}</div>` : ''}
+      ${(bonusTrackersHtml || guessDistHtml) ? `<div class="dashboard-side">${guessDistHtml}${bonusTrackersHtml}</div>` : ''}
     </div>`;
 }
 
@@ -5909,16 +6099,45 @@ function attachEvents() {
       const tgtInp     = field('bonus-progress-target');
       const leaderInp  = field('bonus-progress-leader');
       const noteInp    = field('bonus-progress-note');
-      const entry = { enabled: !!enabledInp?.checked };
+      if (!S.bonusProgress[rid]) S.bonusProgress[rid] = {};
+      const existing = S.bonusProgress[rid][qid] || {};
+      const entry = { enabled: !!enabledInp?.checked, checklist: existing.checklist || {} };
       if (modeInp)   entry.mode    = modeInp.value;
       if (curInp)    entry.current = curInp.value;
       if (tgtInp)    entry.target  = tgtInp.value;
       if (leaderInp) entry.leader  = leaderInp.value;
       if (noteInp)   entry.note    = noteInp.value;
-      if (!S.bonusProgress[rid]) S.bonusProgress[rid] = {};
       S.bonusProgress[rid][qid] = entry;
       saveBonusProgress(rid);
       render();
+    };
+  });
+
+  // Multicheck checklist option toggles (in-place update, no full re-render)
+  document.querySelectorAll('[data-action="mc-checklist-toggle"]').forEach(btn => {
+    btn.onclick = () => {
+      const { rid, qid, opt } = btn.dataset;
+      if (!S.bonusProgress[rid]) S.bonusProgress[rid] = {};
+      if (!S.bonusProgress[rid][qid]) S.bonusProgress[rid][qid] = {};
+      const prog = S.bonusProgress[rid][qid];
+      if (!prog.checklist) prog.checklist = {};
+      const ticked = !prog.checklist[opt];
+      prog.checklist[opt] = ticked;
+      saveBonusProgress(rid);
+      // Update this button and any mirror of the same opt in the visible card — no full render
+      document.querySelectorAll(`[data-action="mc-checklist-toggle"][data-rid="${rid}"][data-qid="${qid}"][data-opt="${opt}"]`).forEach(b => {
+        const icon = b.querySelector('span');
+        if (icon) icon.textContent = ticked ? '✓' : '✗';
+        if (ticked) {
+          b.style.background = 'rgba(102,187,106,0.2)';
+          b.style.borderColor = '#66bb6a';
+          b.style.color = '#66bb6a';
+        } else {
+          b.style.background = 'transparent';
+          b.style.borderColor = 'rgba(255,255,255,0.2)';
+          b.style.color = 'var(--muted)';
+        }
+      });
     };
   });
 
@@ -6102,13 +6321,17 @@ function attachEvents() {
     });
   });
 
-  // Admin: multi-select result checkboxes
-  document.querySelectorAll('[data-action="mc-result-check"]').forEach(cb => {
-    cb.onchange = async () => {
-      const { rid, qid } = cb.dataset;
-      const all = document.querySelectorAll(`[data-action="mc-result-check"][data-rid="${rid}"][data-qid="${qid}"]`);
-      const checked = Array.from(all).filter(c => c.checked).map(c => c.dataset.opt);
-      await upsertBonusResult(rid, qid, checked.join(','));
+  // Admin: multi-select result tri-state cycle buttons
+  document.querySelectorAll('[data-action="mc-result-cycle"]').forEach(btn => {
+    btn.onclick = async () => {
+      const { rid, qid, opt, next } = btn.dataset;
+      const stored = S.bonusResults[rid]?.[qid]?.answer || '';
+      const { correctSet, wrongSet } = parseMcResult(stored);
+      correctSet.delete(opt); wrongSet.delete(opt);
+      if (next === 'correct') correctSet.add(opt);
+      else if (next === 'wrong') wrongSet.add(opt);
+      await upsertBonusResult(rid, qid, serializeMcResult(correctSet, wrongSet));
+      render();
     };
   });
 
