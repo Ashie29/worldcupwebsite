@@ -2422,8 +2422,8 @@ function renderPicks() {
 
       const badge = (pick, correctPos, hasResults) => {
         if (!hasResults || !pick) return '';
-        if (pick === correctPos) return `<span class="pts-badge pts-ok">+2 pts ✅</span>`;
-        if (qualified.has(pick)) return `<span class="pts-badge pts-part">+1 pt 🎯</span>`;
+        if (pick === correctPos) return `<span class="pts-badge pts-ok">+2 pts 🎯</span>`;
+        if (qualified.has(pick)) return `<span class="pts-badge pts-part">+1 pt ✅</span>`;
         return `<span class="pts-badge pts-bad">0 pts ❌</span>`;
       };
       const hasResults = !!(r1 || r2);
@@ -2628,11 +2628,9 @@ function renderPicks() {
     const slp = hasResult ? scoreLinePoints({ score_home: sh, score_away: sa }, { score_home: rsh, score_away: rsa }) : { pts: 0, exact: false };
     let pts = '';
     if (hasResult && (winner || slp.pts)) {
-      const earned = (correctWinner ? 2 : 0) + slp.pts;
-      if (earned === 3)      pts = `<span class="pts-badge pts-ok">+3 pts</span>`;
-      else if (earned === 2) pts = `<span class="pts-badge pts-part">+2 pts</span>`;
-      else if (earned === 1) pts = `<span class="pts-badge pts-part" style="color:#ce93d8;background:rgba(91,33,182,0.2);border-color:rgba(206,147,216,0.3)">+1 pt</span>`;
-      else                   pts = `<span class="pts-badge pts-bad">0 pts</span>`;
+      const earned = ((correctWinner ? 2 : 0) + slp.pts) * mMult;
+      if (earned > 0)  pts = `<span class="pts-badge pts-ok">+${earned} pts</span>`;
+      else if (earned === 0) pts = `<span class="pts-badge pts-bad">0 pts</span>`;
     }
 
     const guessClosed = `<span style="font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--red);border:1px solid rgba(217,79,61,0.4);padding:3px 10px;white-space:nowrap">⛔ Guess Closed</span>`;
@@ -4338,9 +4336,19 @@ function calcRoundScore(uid, rid) {
     const correct = S.bonusResults[rid]?.[bq.id];
     if (!ans || !correct || !correct.answer || !ans.answer) continue;
     const isOU     = bq.type === 'overunder';
+    const isMCQ    = bq.type === 'multicheck';
     const hasWager = bq.wager === true;
     const stake    = hasWager ? (Number(ans.wager) || 0) : (bq.pts * bMult);
-    if (isOU) {
+    if (isMCQ) {
+      const { correctSet, wrongSet } = parseMcResult(correct.answer);
+      const picked = new Set((ans.answer || '').split(',').map(s => s.trim()).filter(Boolean));
+      let mcPts = 0;
+      for (const p of picked) {
+        if (correctSet.has(p)) mcPts += 2;
+        else if (wrongSet.has(p)) mcPts -= 1;
+      }
+      pts += mcPts * bMult;
+    } else if (isOU) {
       if (ans.answer === 'Abstain') { /* 0 pts */ }
       else if (ans.answer === correct.answer) pts += stake;
       else pts -= stake;
