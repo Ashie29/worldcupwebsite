@@ -4061,24 +4061,21 @@ function renderAdmin() {
     } else if (entries.length === 0) {
       tabContent = `<div class="card"><p style="color:var(--muted);font-size:13px">No feedback submitted yet.</p></div>`;
     } else {
-      const avg = (entries.reduce((s, e) => s + (e.rating || 0), 0) / entries.length).toFixed(1);
-      const stars = r => '★'.repeat(r) + '☆'.repeat(5 - r);
       const rows = entries.map(e => {
         const name = e.user_name || '—';
         const date = new Date(e.created_at).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
         return `<tr>
           <td style="white-space:nowrap">${date}</td>
           <td><strong>${name}</strong></td>
-          <td style="color:var(--gold);letter-spacing:2px">${stars(e.rating || 0)}</td>
-          <td style="color:var(--muted);font-size:12px;max-width:340px;white-space:pre-wrap">${e.message || '—'}</td>
+          <td style="color:var(--muted);font-size:12px;max-width:400px;white-space:pre-wrap">${e.message || '—'}</td>
         </tr>`;
       }).join('');
       tabContent = `
         <div class="card" style="margin-bottom:12px">
-          <div class="card-title">💬 Player Feedback — ${entries.length} response${entries.length !== 1 ? 's' : ''} · avg ${avg}/5 ★</div>
+          <div class="card-title">💬 Player Feedback — ${entries.length} response${entries.length !== 1 ? 's' : ''}</div>
           <div style="overflow-x:auto">
             <table class="rounds-table">
-              <thead><tr><th>Date</th><th>Player</th><th>Rating</th><th>Comments</th></tr></thead>
+              <thead><tr><th>Date</th><th>Player</th><th>Comments</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -5673,10 +5670,6 @@ If players remain tied after all tiebreakers, the prize for their combined posit
 function renderFeedback() {
   const fb = S.myFeedback;
   const submitted = !!fb;
-  const stars = n => [1,2,3,4,5].map(i =>
-    `<label style="font-size:32px;cursor:pointer;color:${i<=(n||0)?'var(--gold)':'var(--muted)'}">
-      <input type="radio" name="fb-rating" value="${i}" style="display:none" ${i===(n||0)?'checked':''}>★</label>`
-  ).join('');
 
   return `
     <div class="page-title">💬 Feedback</div>
@@ -5688,11 +5681,7 @@ function renderFeedback() {
           : 'How was the WC26 pool experience? Your feedback helps us improve for next time.'}
       </p>
       <div style="margin-bottom:20px">
-        <div style="font-size:12px;color:var(--muted);letter-spacing:0.08em;margin-bottom:8px">OVERALL RATING</div>
-        <div id="fb-stars" style="display:flex;gap:4px">${stars(fb?.rating)}</div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:12px;color:var(--muted);letter-spacing:0.08em;margin-bottom:8px">COMMENTS (optional)</div>
+        <div style="font-size:12px;color:var(--muted);letter-spacing:0.08em;margin-bottom:8px">COMMENTS</div>
         <textarea id="fb-message" class="input" rows="5" placeholder="What did you enjoy? What could be better?"
           style="width:100%;resize:vertical;font-family:var(--sans)">${fb?.message || ''}</textarea>
       </div>
@@ -6448,16 +6437,13 @@ function attachEvents() {
   const fbSubmit = document.getElementById('fb-submit');
   if (fbSubmit) {
     fbSubmit.onclick = async () => {
-      const rating = parseInt(document.querySelector('input[name="fb-rating"]:checked')?.value || '0');
       const message = document.getElementById('fb-message')?.value.trim() || '';
       const status = document.getElementById('fb-status');
-      if (!rating) { if (status) status.textContent = 'Please select a star rating.'; return; }
       fbSubmit.disabled = true;
       fbSubmit.textContent = 'Saving…';
       const row = {
         user_id: S.user.id,
         user_name: S.profile?.nickname || S.profile?.name || '',
-        rating,
         message,
         created_at: new Date().toISOString(),
       };
