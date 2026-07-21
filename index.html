@@ -516,7 +516,22 @@ const FLAG = {
   "Portugal":"🇵🇹","DR Congo":"🇨🇩","Uzbekistan":"🇺🇿","Colombia":"🇨🇴",
   "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦",
 };
-const F = t => FLAG[t] || '⚽';
+// Aliases: API names / alternate spellings → canonical FLAG key
+const TEAM_ALIASES = {
+  "Korea Republic":"South Korea","Republic of Korea":"South Korea","South Korea":"South Korea",
+  "Korea DPR":"North Korea","North Korea":"North Korea",
+  "Bosnia and Herzegovina":"Bosnia-Herzegovina","Bosnia-H.":"Bosnia-Herzegovina","Bosnia & Herzegovina":"Bosnia-Herzegovina",
+  "Congo DR":"DR Congo","Democratic Republic of Congo":"DR Congo","Congo, DR":"DR Congo",
+  "Turkey":"Türkiye","Turkiye":"Türkiye",
+  "Ivory Coast":"Ivory Coast","Côte d'Ivoire":"Ivory Coast","Cote d'Ivoire":"Ivory Coast",
+  "United States":"USA","United States of America":"USA",
+  "Iran":"Iran, Islamic Republic of",
+  "Czech Republic":"Czechia","Czechia":"Czechia",
+  "Curacao":"Curaçao",
+  "Trinidad and Tobago":"Trinidad & Tobago",
+  "North Macedonia":"North Macedonia","Republic of North Macedonia":"North Macedonia",
+};
+const F = t => FLAG[TEAM_ALIASES[t] || t] || FLAG[t] || '⚽';
 
 function renderBonusNote(bq) {
   const tagRows = (bq.tags||[]).map(tid => {
