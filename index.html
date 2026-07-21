@@ -22,8 +22,9 @@
   --display:'Bebas Neue',sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
+html{overflow-x:hidden;max-width:100%;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);
-  font-weight:300;min-height:100vh;overflow-x:hidden;}
+  font-weight:300;min-height:100vh;overflow-x:hidden;max-width:100%;}
 /* noise overlay */
 body::before{content:'';position:fixed;inset:0;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
@@ -183,9 +184,9 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 /* ── Leaderboard ─────────────────────────────────────────────── */
 .lb-table{width:100%;border-collapse:collapse;}
 .lb-table th{color:var(--muted);font-size:10px;padding:7px 10px;font-family:var(--mono);
-  border-bottom:1px solid var(--gold);text-align:left;letter-spacing:0.15em;text-transform:uppercase;}
+  border-bottom:1px solid var(--gold);text-align:left;letter-spacing:0.15em;text-transform:uppercase;white-space:nowrap;}
 .lb-table th:last-child,.lb-table td:last-child{text-align:right;}
-.lb-table td{padding:10px 10px;border-bottom:1px solid var(--border2);font-size:13px;}
+.lb-table td{padding:10px 10px;border-bottom:1px solid var(--border2);font-size:13px;white-space:nowrap;}
 .lb-table tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
 .lb-table tr.gold-row td{background:rgba(232,213,163,.05);}
 .rank-icon{font-size:16px;}
@@ -4878,15 +4879,15 @@ function renderLiveMatches() {
             </div>`;
           })() : '';
 
-          return `<table style="width:100%;border-collapse:collapse;margin-top:10px">
+          return `<div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;min-width:280px">
             <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">
-              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PLAYER</th>
-              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PICK</th>
-              <th style="padding:4px 8px;text-align:center;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">SCORE</th>
-              <th style="padding:4px 8px;text-align:right;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400">PTS</th>
+              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400;white-space:nowrap">PLAYER</th>
+              <th style="padding:4px 8px;text-align:left;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400;white-space:nowrap">PICK</th>
+              <th style="padding:4px 8px;text-align:center;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400;white-space:nowrap">SCORE</th>
+              <th style="padding:4px 8px;text-align:right;font-size:10px;color:var(--muted);font-family:var(--mono);font-weight:400;white-space:nowrap">PTS</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-          </table>${resultBar}${confidenceBar}`;
+          </table></div>${resultBar}${confidenceBar}`;
         })();
 
     const roundShort = round.label.replace('Match Day ','MD').toUpperCase();

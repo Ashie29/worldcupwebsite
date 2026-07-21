@@ -91,11 +91,11 @@ body::before{content:'';position:fixed;inset:0;
 .top4-prize{font-family:var(--mono);font-size:10px;color:#81c784;margin-left:auto;}
 
 /* Status badge */
-.status-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;
+.status-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   letter-spacing:0.15em;text-transform:uppercase;padding:3px 8px;}
 .status-active{background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.4);color:#66bb6a;}
 .status-upcoming{background:rgba(33,150,243,0.12);border:1px solid rgba(33,150,243,0.3);color:#64b5f6;}
-.status-closed{background:rgba(217,79,61,0.15);border:1px solid rgba(217,79,61,0.5);color:#e57368;}
+.status-closed{background:rgba(15,10,10,0.75);border:1px solid rgba(217,79,61,0.6);color:#e57368;}
 
 /* Admin gear */
 .tile-admin{position:absolute;top:10px;left:10px;}
@@ -499,7 +499,7 @@ function renderTile(t, isAdmin, inPast = false) {
     bodyContent = `<div class="top4">${top4.map((p, i) => `
       <div class="top4-row">
         <span class="top4-rank">${medal(i)}</span>
-        <span class="top4-name">${p.name}</span>
+        <span class="top4-name">${resolveDisplayName(p.name)}</span>
         <span class="top4-pts">${p.pts} pts</span>
       </div>`).join('')}</div>`;
   } else if (prog.total > 0) {
@@ -726,11 +726,16 @@ function showEditModal(t) {
     const badge  = document.getElementById('m-badge').value.trim();
     const banner = document.getElementById('m-banner').value.trim();
     const msg    = document.getElementById('m-msg');
-    const { error } = await sb.from('tournaments').update({
+    msg.textContent = 'Saving…'; msg.style.color = 'var(--muted)';
+    const { data: saved, error } = await sb.from('tournaments').update({
       name, status, prize_pool: prize || null, badge_label: badge || null, banner_url: banner || null
-    }).eq('id', t.id);
-    if (error) { msg.textContent = error.message; msg.style.color = '#ef9a9a'; }
-    else {
+    }).eq('id', t.id).select();
+    if (error) {
+      msg.textContent = '✗ ' + error.message; msg.style.color = '#ef9a9a';
+      console.error('[tournaments] save error:', error);
+    } else if (!saved || saved.length === 0) {
+      msg.textContent = '✗ Save blocked — check Supabase RLS on tournaments table'; msg.style.color = '#ef9a9a';
+    } else {
       msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a';
       await loadTournaments(); await loadProgress();
       if (status === 'closed') { delete T.top4[t.id]; await loadTop4(t.id); }
@@ -771,9 +776,25 @@ const TOURNAMENT_PRIZES = {
   wc2026: ['$500', '$300', '$200', '$100'],
 };
 
+// Map old/hardcoded display names → Supabase profile UUID
+// Get your UUID: (await sb.auth.getUser()).data.user.id in the browser console
+const PROFILE_NAME_MAP = {
+  // 'Old Display Name': 'supabase-uuid-here',
+};
+
+function resolveDisplayName(name) {
+  const uid = PROFILE_NAME_MAP[name];
+  if (uid) {
+    const player = T.players.find(p => p.id === uid);
+    if (player) return player.nickname || player.name || name;
+  }
+  return name;
+}
+
 const HISTORICAL_TOURNAMENTS = [
   {
     id: 'ipl2025', name: 'IPL 2025', emoji: '🏏',
+    banner: 'https://zupimages.net/up/26/30/rnle.jpg',
     players: 15, prize: '$605',
     placements: [
       { name: 'Argentina Hater', pts: 98 },
@@ -784,6 +805,7 @@ const HISTORICAL_TOURNAMENTS = [
   },
   {
     id: 'ipl2024', name: 'IPL 2024', emoji: '🏏',
+    banner: 'https://zupimages.net/up/26/30/jtsd.jpg',
     players: 13, prize: '$520',
     placements: [
       { name: 'Infiniti',        pts: 79 },
@@ -794,6 +816,7 @@ const HISTORICAL_TOURNAMENTS = [
   },
   {
     id: 'euro2024', name: 'EURO 2024', emoji: '⚽',
+    banner: 'https://zupimages.net/up/26/30/j6gj.jpg',
     players: 18, prize: '$810',
     placements: [
       { name: 'Infiniti',        pts: 175 },
@@ -804,6 +827,7 @@ const HISTORICAL_TOURNAMENTS = [
   },
   {
     id: 'wc2022', name: 'FIFA World Cup 2022', emoji: '⚽',
+    banner: 'https://zupimages.net/up/26/30/qee6.jpg',
     players: 13, prize: '$550',
     placements: [
       { name: 'Nikhil',          pts: 62 },
@@ -819,12 +843,14 @@ function renderHistoricalTile(h) {
   const top4Html = `<div class="top4">${h.placements.map((p, i) => `
     <div class="top4-row">
       <span class="top4-rank">${medal(i)}</span>
-      <span class="top4-name">${p.name}</span>
+      <span class="top4-name">${resolveDisplayName(p.name)}</span>
       ${p.pts ? `<span class="top4-pts">${p.pts} pts</span>` : ''}
     </div>`).join('')}</div>`;
 
   return `<div class="tile tile-static">
-    <div class="tile-banner-placeholder">${h.emoji}</div>
+    ${h.banner
+      ? `<img class="tile-banner" src="${h.banner}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tile-banner-placeholder" style="display:none">${h.emoji}</div>`
+      : `<div class="tile-banner-placeholder">${h.emoji}</div>`}
     <span class="status-badge status-closed">Closed</span>
     <div class="tile-body">
       <div class="tile-name">${h.name}</div>
