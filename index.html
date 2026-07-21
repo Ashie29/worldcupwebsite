@@ -794,10 +794,12 @@ const S = {
   tournamentConfig: {  // per-tournament structure config (loaded from Supabase __structure__)
     disabledRounds: [],
     roundLabels: {},
+    roundSources: {},    // rid → source rid for bracket chain (e.g. r16 → r32, r32 → gs)
     numGroups: 12,
     groupSize: 4,
     advancersPerGroup: 2,
     best3rdAdvancers: 8,
+    customRounds: [],    // [{id, label, knockout, dateRange, sourceRound, order, matches:[{id,home,away,kickoff}], bonusQuestions:[]}]
   },
   lockSchedules: {},  // rid → { lockAt: ISO string, unlockAt: ISO string }
   bracketTeams: {},   // mid → { home: string, away: string }
@@ -982,17 +984,23 @@ function getRoundMatchOutcome(rid, idx, wantLoser) {
 }
 
 // Returns true if a slot's literal home/away text is still a placeholder code
-// (e.g. "1A", "W R32-3", "QF2", "Best 3rd (1)") rather than a real, confirmed team name
+// (e.g. "1A", "W R32-3", "QF2", "Best 3rd (1)", "Winner gs1-3") rather than a confirmed team name
 function isPlaceholderSlot(rid, placeholder) {
-  const prevByRound = { r16: 'r32', qf: 'r16', sf: 'qf', final: 'sf' };
-  if (rid === 'r32' && /^([12])([A-L])$/.test(placeholder)) return true;
+  const hasPrev = !!(S._roundSources?.[rid]);
+  // Group-stage position references (for rounds that read from groups)
+  if (/^([12])([A-L])$/.test(placeholder)) return true;
   if (/^Best 3rd \(\d+\)$/.test(placeholder)) return true;
   if (/^3[A-L]+$/.test(placeholder)) return true;
-  if (prevByRound[rid] && /^W R32-(\d+)$/.test(placeholder)) return true;
-  if (prevByRound[rid] && /^QF(\d+)$/.test(placeholder)) return true;
-  if (prevByRound[rid] && /^SF Loser (\d+)$/.test(placeholder)) return true;
-  if (prevByRound[rid] && /^SF(\d+)$/.test(placeholder)) return true;
-  if (prevByRound[rid] && /^Finalist (\d+)$/.test(placeholder)) return true;
+  // WC2026-specific knockout labels
+  if (hasPrev && /^W R32-(\d+)$/.test(placeholder)) return true;
+  if (hasPrev && /^QF(\d+)$/.test(placeholder)) return true;
+  if (hasPrev && /^SF Loser (\d+)$/.test(placeholder)) return true;
+  if (hasPrev && /^SF(\d+)$/.test(placeholder)) return true;
+  if (hasPrev && /^Finalist (\d+)$/.test(placeholder)) return true;
+  // Generic pattern for custom rounds: "Winner [roundId]-[N]" or "Loser [roundId]-[N]"
+  if (/^(Winner|Loser) \S+-\d+$/.test(placeholder)) return true;
+  // Group-stage generic: "1st Group A", "Runner-up Group B" etc.
+  if (/^(1st|2nd|3rd|Runner-up) Group [A-Z]$/.test(placeholder)) return true;
   return false;
 }
 
@@ -1014,32 +1022,55 @@ function getRankedThirdPlaceTeams() {
 // team fills which of the 8 slots needs a human decision, made via the dropdown below.
 function computeBracketAutoFill(rid) {
   const round = ROUNDS[rid];
-  const prevByRound = { r16: 'r32', qf: 'r16', sf: 'qf', final: 'sf' };
-  const prevRid = prevByRound[rid];
-  const standings = rid === 'r32' ? computeGroupStandings() : null;
+  if (!round) return [];
+
+  // Walk the source chain, skipping any disabled rounds, to find the effective previous round
+  const rawPrev = S._roundSources?.[rid];
+  const prevRid  = rawPrev ? resolveSourceRound(rawPrev) : null;
+  const prevRound = prevRid ? ROUNDS[prevRid] : null;
+
+  // Use group standings when this round (or its effective source) reads from a group-stage round
+  const sourceIsGroup = prevRound && !prevRound.knockout && prevRound.special !== 'pretournament';
+  const standings = (!prevRid || sourceIsGroup) ? computeGroupStandings() : null;
+
   const fills = [];
   round.matches.forEach(m => {
     ['home', 'away'].forEach(side => {
       if (S.bracketTeams[m.id]?.[side]) return; // never overwrite a manual edit
-      const placeholder = m[side];
+      const ph = m[side];
       let team = null;
-
       let mm;
-      if (rid === 'r32' && (mm = /^([12])([A-L])$/.exec(placeholder))) {
+
+      // Group-stage position references → use standings
+      if (standings && (mm = /^([12])([A-L])$/.exec(ph))) {
         const [, pos, g] = mm;
-        const teams = standings[g];
-        const groupComplete = teams && teams.every(t => t.played >= 3);
-        team = groupComplete ? teams[Number(pos) - 1]?.team || null : null;
-      } else if (prevRid && (mm = /^W R32-(\d+)$/.exec(placeholder))) {
+        const grp = standings[g];
+        const complete = grp && grp.every(t => t.played >= (S.tournamentConfig?.groupSize ?? 4) - 1);
+        team = complete ? grp[Number(pos) - 1]?.team || null : null;
+
+      } else if (standings && (mm = /^(1st|2nd|3rd|Runner-up) Group ([A-Z])$/.exec(ph))) {
+        const posMap = { '1st': 0, '2nd': 1, 'Runner-up': 1, '3rd': 2 };
+        const grp = standings[mm[2]];
+        const complete = grp && grp.every(t => t.played >= (S.tournamentConfig?.groupSize ?? 4) - 1);
+        team = complete ? grp[posMap[mm[1]]]?.team || null : null;
+
+      // WC2026-style knockout labels → use prevRid
+      } else if (prevRid && (mm = /^W R32-(\d+)$/.exec(ph))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
-      } else if (prevRid && (mm = /^QF(\d+)$/.exec(placeholder))) {
+      } else if (prevRid && (mm = /^QF(\d+)$/.exec(ph))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
-      } else if (prevRid && (mm = /^SF Loser (\d+)$/.exec(placeholder))) {
+      } else if (prevRid && (mm = /^SF Loser (\d+)$/.exec(ph))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), true);
-      } else if (prevRid && (mm = /^SF(\d+)$/.exec(placeholder))) {
+      } else if (prevRid && (mm = /^SF(\d+)$/.exec(ph))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
-      } else if (prevRid && (mm = /^Finalist (\d+)$/.exec(placeholder))) {
+      } else if (prevRid && (mm = /^Finalist (\d+)$/.exec(ph))) {
         team = getRoundMatchOutcome(prevRid, Number(mm[1]), false);
+
+      // Generic custom-round reference: "Winner [roundId]-[N]" or "Loser [roundId]-[N]"
+      } else if ((mm = /^(Winner|Loser) (\S+)-(\d+)$/.exec(ph))) {
+        const [, outcome, srcRid, idx] = mm;
+        const effectiveSrc = resolveSourceRound(srcRid);
+        if (effectiveSrc) team = getRoundMatchOutcome(effectiveSrc, Number(idx), outcome === 'Loser');
       }
 
       if (team) fills.push({ mid: m.id, side, team });
@@ -1325,10 +1356,12 @@ function abbrevTournamentName(name) {
 // Called after config is loaded (or when config changes) so all ROUNDS consumers
 // automatically see the filtered/relabelled round set.
 function applyTournamentConfig() {
-  const base = ROUNDS_MAP[S.tournamentId] || ROUNDS_WC2026;
+  const base = ROUNDS_MAP[S.tournamentId] || {};
   const cfg  = S.tournamentConfig;
   const disabled = new Set(cfg.disabledRounds || []);
-  ROUNDS = Object.fromEntries(
+
+  // Filtered + relabelled base rounds
+  const filteredBase = Object.fromEntries(
     Object.entries(base)
       .filter(([id]) => !disabled.has(id))
       .map(([id, r]) => {
@@ -1336,6 +1369,53 @@ function applyTournamentConfig() {
         return [id, label ? { ...r, label } : r];
       })
   );
+
+  // Merge custom rounds (always included — admin manages them explicitly)
+  const customById = {};
+  for (const cr of (cfg.customRounds || [])) {
+    customById[cr.id] = {
+      id: cr.id,
+      label: cr.label,
+      knockout: !!cr.knockout,
+      dateRange: cr.dateRange || '',
+      sourceRound: cr.sourceRound || null,
+      matches: cr.matches || [],
+      bonusQuestions: cr.bonusQuestions || [],
+      _custom: true,
+    };
+  }
+
+  ROUNDS = { ...filteredBase, ...customById };
+
+  // Build roundSources map: stores where each round's bracket winners come from.
+  // For base rounds use the explicit config; auto-derive for custom rounds.
+  S._roundSources = { ...(cfg.roundSources || {}) };
+  for (const cr of (cfg.customRounds || [])) {
+    if (cr.sourceRound) S._roundSources[cr.id] = cr.sourceRound;
+  }
+  // Auto-derive source chain for base rounds based on the ordered round list
+  // (each knockout round implicitly reads from the previous round)
+  const orderedBase = Object.values(base);
+  for (let i = 1; i < orderedBase.length; i++) {
+    const r = orderedBase[i];
+    if (!S._roundSources[r.id] && r.knockout) {
+      S._roundSources[r.id] = orderedBase[i - 1].id;
+    }
+  }
+}
+
+// Walk the roundSources chain upward, skipping disabled rounds, to find
+// the nearest enabled ancestor of a given round. Used by getBracketTeam.
+function resolveSourceRound(rid) {
+  const disabled = new Set(S.tournamentConfig?.disabledRounds || []);
+  let cur = rid;
+  const seen = new Set();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    if (!disabled.has(cur)) return cur;
+    cur = S._roundSources?.[cur];
+  }
+  return null;
 }
 
 async function loadAllData() {
@@ -1526,6 +1606,15 @@ async function loadAllData() {
     const { data: fbRow } = await sb.from('feedback').select('*').eq('user_id', S.user.id).single();
     S.myFeedback = fbRow || null;
   }
+}
+
+// Persist tournament structure config (disabled rounds, labels, custom rounds, group settings)
+function saveStructure() {
+  applyTournamentConfig();
+  return sb.from('round_settings').upsert(
+    { round_id: '__structure__', tournament_id: S.tournamentId, prizes: JSON.stringify(S.tournamentConfig) },
+    { onConflict: 'round_id,tournament_id' }
+  ).then(({ error }) => { if (error) console.warn('saveStructure failed:', error.message); });
 }
 
 // Persist prize configuration to Supabase so it's visible on every device
@@ -2626,6 +2715,9 @@ function closeSidebar() {
 // ── Picks page ───────────────────────────────────────────────────
 function renderPicks() {
   const round    = ROUNDS[S.activeRound];
+  if (!round) return `<div class="page-title">My Picks</div>
+    <div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">
+      No rounds are configured for this tournament yet. An admin can add rounds in the ⚙️ Settings tab.</p></div>`;
   const rid      = round.id;
   const uid      = S.user.id;
   const locked   = S.roundSettings[rid]?.locked || false;
@@ -3316,7 +3408,10 @@ function renderAdmin() {
       </button>`;
     }).join('');
 
+    if (!round) { tabContent = `<div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">
+        No rounds configured yet. Set up rounds in the ⚙️ <b>Settings</b> tab first.</p></div>`; }
     // ── Pre-tournament results panel ─────────────────────────────
+    else
     if (round.special === 'pretournament') {
       const winPts = S.ptSettings?.winnerPts ?? 10;
       const winnerRes = S.bonusResults['pt']?.['pt_winner']?.answer || '';
@@ -3844,6 +3939,8 @@ function renderAdmin() {
   if (adminTab === 'picks') {
     const rid    = S.adminTabRounds['picks'] || S.activeRound;
     const round  = ROUNDS[rid] || ROUNDS[S.activeRound];
+    if (!round) { tabContent = `<div class="card"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">
+        No rounds configured yet. Set up rounds in the ⚙️ <b>Settings</b> tab first.</p></div>`; } else {
     const nowPicks = Date.now();
     // Returns true if a missing pick for this match should be flagged red (within 2hrs of lock = 3hrs before kickoff)
     const matchWarnMissing = m => {
@@ -4015,6 +4112,7 @@ function renderAdmin() {
         Viewing picks for: <strong style="color:var(--gold)">${roundLabel(round)}</strong>
       </p>
       ${playersHtml}`;
+  } // end else (round exists)
   }
 
   // ── Question bank tab ─────────────────────────────────────────
@@ -4509,6 +4607,74 @@ function renderAdmin() {
                + numField('cfg-advancers-group',   'Advancers per group',      cfg.advancersPerGroup, 'Teams that qualify automatically from each group')
                + numField('cfg-best-third',        'Best 3rd-place advancers', cfg.best3rdAdvancers,  'Extra teams advancing as best 3rd-placed (0 if none)');
         })()}
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Custom Rounds</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Add rounds not in the base template (e.g. new tournament, extra qualifying stage, or IPL-style weeks). Changes save immediately.</p>
+        <p style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:16px;line-height:1.6">
+          In home/away fields use: <strong style="color:var(--text)">Winner [roundId]-[N]</strong> or <strong style="color:var(--text)">Loser [roundId]-[N]</strong> for knockout references,
+          or <strong style="color:var(--text)">1st Group A</strong> / <strong style="color:var(--text)">Runner-up Group B</strong> for group-stage references.
+          Bracket auto-fill skips disabled rounds automatically.
+        </p>
+        <div id="custom-rounds-list">
+          ${(() => {
+            const crs = S.tournamentConfig.customRounds || [];
+            if (!crs.length) return `<p style="font-size:12px;color:var(--muted);padding:8px 0">No custom rounds yet.</p>`;
+            return crs.map((cr, ci) => {
+              const typeLabel = cr.knockout ? '⚡ Knockout' : '📋 Group / Week';
+              const srcLabel  = cr.sourceRound ? `reads from <strong>${cr.sourceRound}</strong>` : 'no source';
+              const matchRows = (cr.matches || []).map((m, mi) => {
+                const ko = m.kickoff ? new Date(m.kickoff).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--faint);font-size:12px">
+                  <span style="color:var(--muted);font-family:var(--mono);min-width:22px">${mi+1}.</span>
+                  <span style="flex:1;color:var(--text)">${m.home || '?'} <span style="color:var(--muted)">vs</span> ${m.away || '?'}</span>
+                  <span style="color:var(--muted);font-family:var(--mono);font-size:10px">${ko}</span>
+                  <button class="btn btn-sm btn-outline" style="padding:2px 7px;font-size:10px;color:#ef5350;border-color:#ef535033"
+                    data-del-match="${cr.id}" data-match-idx="${mi}">✕</button>
+                </div>`;
+              }).join('');
+              return `<div style="border:1px solid var(--border2);padding:14px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                  <div style="flex:1">
+                    <div style="font-family:var(--mono);font-size:12px;color:var(--text);font-weight:600">${cr.label}</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px">${typeLabel} · id: <code>${cr.id}</code> · ${srcLabel}${cr.dateRange?' · '+cr.dateRange:''}</div>
+                  </div>
+                  <button class="btn btn-sm btn-outline" style="color:#ef5350;border-color:#ef535033" data-del-round="${cr.id}">Delete Round</button>
+                </div>
+                <div style="margin-bottom:10px">${matchRows || '<p style="font-size:11px;color:var(--muted)">No matches yet.</p>'}</div>
+                <details style="margin-top:8px">
+                  <summary style="font-size:11px;color:var(--gold);cursor:pointer;font-family:var(--mono);letter-spacing:0.05em">+ ADD MATCH</summary>
+                  <div style="display:grid;gap:6px;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03)">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                      <input id="nm-home-${cr.id}" placeholder="Home team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                      <input id="nm-away-${cr.id}" placeholder="Away team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                    </div>
+                    <input id="nm-ko-${cr.id}" type="datetime-local" placeholder="Kickoff (UTC)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                    <button class="btn btn-sm btn-gold" data-add-match="${cr.id}">Add Match</button>
+                  </div>
+                </details>
+              </div>`;
+            }).join('');
+          })()}
+        </div>
+        <details id="add-round-form" style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--gold);font-family:var(--mono);letter-spacing:0.08em">+ ADD ROUND</summary>
+          <div style="display:grid;gap:8px;margin-top:12px;padding:12px;background:rgba(255,255,255,0.03)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <input id="nr-label" placeholder="Round name (e.g. Week 1, Qualifier)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+              <input id="nr-id" placeholder="ID (e.g. week1, qf_ipl) — no spaces" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+              <select id="nr-type" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none">
+                <option value="group">Group / Week (non-knockout)</option>
+                <option value="knockout">Knockout</option>
+              </select>
+              <input id="nr-source" placeholder="Reads from (round ID)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+              <input id="nr-daterange" placeholder="Date range (optional)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            </div>
+            <button class="btn btn-gold" id="nr-submit" style="width:fit-content">Add Round</button>
+          </div>
+        </details>
       </div>
       <div style="margin-top:4px">
         <button class="btn btn-gold" id="settings-save-btn">Save Settings</button>
@@ -5949,7 +6115,7 @@ function renderResults() {
       );
 
   // If the active round is now hidden, fall back to the first visible one
-  if (!roundIds.includes(S.activeRound)) S.activeRound = roundIds[0] || 'gs1';
+  if (!roundIds.includes(S.activeRound)) S.activeRound = roundIds[0] || null;
   const rid   = S.activeRound;
   const round = ROUNDS[rid];
 
@@ -6916,6 +7082,72 @@ function attachEvents() {
     };
   });
 
+  // Admin: Add Round
+  const nrSubmit = document.getElementById('nr-submit');
+  if (nrSubmit) {
+    nrSubmit.onclick = async () => {
+      const label  = document.getElementById('nr-label')?.value.trim();
+      let   id     = document.getElementById('nr-id')?.value.trim().replace(/\s+/g, '_').toLowerCase();
+      const type   = document.getElementById('nr-type')?.value;
+      const source = document.getElementById('nr-source')?.value.trim();
+      const dr     = document.getElementById('nr-daterange')?.value.trim();
+      if (!label || !id) { alert('Round name and ID are required.'); return; }
+      if (S.tournamentConfig.customRounds.find(r => r.id === id) || ROUNDS_MAP[S.tournamentId]?.[id]) {
+        alert(`Round ID "${id}" already exists. Choose a different ID.`); return;
+      }
+      S.tournamentConfig.customRounds.push({
+        id, label, knockout: type === 'knockout', sourceRound: source || null,
+        dateRange: dr || '', matches: [], bonusQuestions: [],
+      });
+      await saveStructure();
+      render();
+    };
+  }
+
+  // Admin: Delete Round
+  document.querySelectorAll('[data-del-round]').forEach(btn => {
+    btn.onclick = async () => {
+      const rid = btn.dataset.delRound;
+      if (!confirm(`Delete round "${rid}" and all its matches? This cannot be undone.`)) return;
+      S.tournamentConfig.customRounds = S.tournamentConfig.customRounds.filter(r => r.id !== rid);
+      await saveStructure();
+      render();
+    };
+  });
+
+  // Admin: Add Match to custom round
+  document.querySelectorAll('[data-add-match]').forEach(btn => {
+    btn.onclick = async () => {
+      const rid  = btn.dataset.addMatch;
+      const cr   = S.tournamentConfig.customRounds.find(r => r.id === rid);
+      if (!cr) return;
+      const home = document.getElementById(`nm-home-${rid}`)?.value.trim();
+      const away = document.getElementById(`nm-away-${rid}`)?.value.trim();
+      const ko   = document.getElementById(`nm-ko-${rid}`)?.value;
+      if (!home && !away) { alert('Enter at least a home or away team/reference.'); return; }
+      const idx = cr.matches.length + 1;
+      const matchId = `${rid}_m${idx}`;
+      cr.matches.push({ id: matchId, home: home || 'TBD', away: away || 'TBD', kickoff: ko ? new Date(ko).toISOString() : '' });
+      await saveStructure();
+      render();
+    };
+  });
+
+  // Admin: Delete Match from custom round
+  document.querySelectorAll('[data-del-match]').forEach(btn => {
+    btn.onclick = async () => {
+      const rid = btn.dataset.delMatch;
+      const idx = parseInt(btn.dataset.matchIdx);
+      const cr  = S.tournamentConfig.customRounds.find(r => r.id === rid);
+      if (!cr) return;
+      cr.matches.splice(idx, 1);
+      // Re-ID remaining matches to stay sequential
+      cr.matches.forEach((m, i) => { m.id = `${rid}_m${i + 1}`; });
+      await saveStructure();
+      render();
+    };
+  });
+
   // Admin: settings save
   const settingsSaveBtn = document.getElementById('settings-save-btn');
   if (settingsSaveBtn) {
@@ -6953,12 +7185,7 @@ function attachEvents() {
         advancersPerGroup:parseInt(document.getElementById('cfg-advancers-group')?.value)  || 2,
         best3rdAdvancers: parseInt(document.getElementById('cfg-best-third')?.value)       || 8,
       };
-      applyTournamentConfig();
-      // persist structure config
-      await sb.from('round_settings').upsert(
-        { round_id: '__structure__', tournament_id: S.tournamentId, prizes: JSON.stringify(S.tournamentConfig) },
-        { onConflict: 'round_id,tournament_id' }
-      );
+      await saveStructure();
       saveScoring();
       const msg = document.getElementById('settings-save-msg');
       if (msg) { msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a'; }
@@ -7423,6 +7650,7 @@ async function syncFromAPI(apiKey) {
 function getCurrentRound() {
   const now = Date.now();
   const playableRounds = Object.values(ROUNDS).filter(r => r.matches?.length > 0);
+  if (!playableRounds.length) return null;
   let current = playableRounds[0];
   for (const round of playableRounds) {
     const firstKo = round.matches
@@ -7430,7 +7658,7 @@ function getCurrentRound() {
       .map(k => new Date(k).getTime()).sort((a, b) => a - b)[0];
     if (firstKo && now >= firstKo) current = round;
   }
-  return current.id;
+  return current?.id || null;
 }
 
 function showMsg(el, text, type) {
