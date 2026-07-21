@@ -326,10 +326,14 @@ async function loadTournaments() {
 }
 
 async function loadPlayerCounts() {
-  const { data } = await sb.from('profiles').select('id').eq('is_admin', false);
-  const count = (data || []).length;
-  // Same player pool for now; could be per-tournament in future
-  T.tournaments.forEach(t => { T.playerCounts[t.id] = count; });
+  // Count distinct users who have submitted at least one pick per tournament
+  const { data } = await sb.from('picks').select('user_id, tournament_id');
+  const byTid = {};
+  (data || []).forEach(row => {
+    if (!byTid[row.tournament_id]) byTid[row.tournament_id] = new Set();
+    byTid[row.tournament_id].add(row.user_id);
+  });
+  T.tournaments.forEach(t => { T.playerCounts[t.id] = byTid[t.id]?.size ?? 0; });
 }
 
 async function loadPrizePools() {

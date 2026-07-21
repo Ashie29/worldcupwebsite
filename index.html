@@ -791,6 +791,7 @@ const S = {
   scoring: { winnerPts:2, exactScorePts:1, scoreWrongTeamPts:1, ptGroupFirstPts:2, ptGroupQualPts:1, ptWinnerPts:10 },
   hiddenTabs: [],  // tab ids hidden for this tournament
   tagDescs: {},    // tagId → custom description override
+  apiConfig: { apiKey: '', competitionCode: '', season: '' },  // football-data.org settings
   tournamentConfig: {  // per-tournament structure config (loaded from Supabase __structure__)
     disabledRounds: [],
     roundLabels: {},
@@ -1387,19 +1388,17 @@ function applyTournamentConfig() {
 
   ROUNDS = { ...filteredBase, ...customById };
 
-  // Build roundSources map: stores where each round's bracket winners come from.
-  // For base rounds use the explicit config; auto-derive for custom rounds.
-  S._roundSources = { ...(cfg.roundSources || {}) };
-  for (const cr of (cfg.customRounds || [])) {
-    if (cr.sourceRound) S._roundSources[cr.id] = cr.sourceRound;
-  }
-  // Auto-derive source chain for base rounds based on the ordered round list
-  // (each knockout round implicitly reads from the previous round)
-  const orderedBase = Object.values(base);
-  for (let i = 1; i < orderedBase.length; i++) {
-    const r = orderedBase[i];
-    if (!S._roundSources[r.id] && r.knockout) {
-      S._roundSources[r.id] = orderedBase[i - 1].id;
+  // Derive knockout source chain purely from round order.
+  // First knockout reads from the last group-stage round; each subsequent reads from the one above.
+  S._roundSources = {};
+  const allOrdered = Object.values(ROUNDS);
+  const groupRounds = allOrdered.filter(r => !r.knockout && r.special !== 'pretournament');
+  const knockoutRounds = allOrdered.filter(r => r.knockout);
+  for (let i = 0; i < knockoutRounds.length; i++) {
+    if (i === 0) {
+      S._roundSources[knockoutRounds[i].id] = groupRounds[groupRounds.length - 1]?.id || null;
+    } else {
+      S._roundSources[knockoutRounds[i].id] = knockoutRounds[i - 1].id;
     }
   }
 }
@@ -1591,6 +1590,10 @@ async function loadAllData() {
     } catch(e) {}
   }
 
+  // API integration config (football-data.org key, competition code, season)
+  const { data: apiCfgRow } = await sb.from('round_settings').select('prizes').eq('round_id','__api_config__').eq('tournament_id', S.tournamentId).single();
+  if (apiCfgRow?.prizes) { try { S.apiConfig = { ...S.apiConfig, ...JSON.parse(apiCfgRow.prizes) }; } catch(e) {} }
+
   // tournament structure config (disabled rounds, label overrides, group settings)
   const { data: structCfg } = await sb.from('round_settings').select('prizes').eq('round_id','__structure__').eq('tournament_id', S.tournamentId).single();
   if (structCfg?.prizes) {
@@ -1598,6 +1601,20 @@ async function loadAllData() {
       const cfg = JSON.parse(structCfg.prizes);
       if (cfg && typeof cfg === 'object') S.tournamentConfig = { ...S.tournamentConfig, ...cfg };
     } catch(e) {}
+  }
+  // Seed default rounds for brand-new tournaments with no base template and no saved structure
+  if (!ROUNDS_MAP[S.tournamentId] && !S.tournamentConfig.customRounds?.length) {
+    S.tournamentConfig.customRounds = [
+      {id:'md1',  label:'Match Day 1',        knockout:false, matches:[], bonusQuestions:[]},
+      {id:'md2',  label:'Match Day 2',        knockout:false, matches:[], bonusQuestions:[]},
+      {id:'md3',  label:'Match Day 3',        knockout:false, matches:[], bonusQuestions:[]},
+      {id:'r32',  label:'Round of 32',         knockout:true,  matches:[], bonusQuestions:[]},
+      {id:'r16',  label:'Round of 16',         knockout:true,  matches:[], bonusQuestions:[]},
+      {id:'qf',   label:'Quarter-Finals',      knockout:true,  matches:[], bonusQuestions:[]},
+      {id:'sf',   label:'Semi-Finals',         knockout:true,  matches:[], bonusQuestions:[]},
+      {id:'final',label:'Final',               knockout:true,  matches:[], bonusQuestions:[]},
+    ];
+    saveStructure(); // persist defaults so they survive reload
   }
   applyTournamentConfig();
 
@@ -1611,10 +1628,19 @@ async function loadAllData() {
 // Persist tournament structure config (disabled rounds, labels, custom rounds, group settings)
 function saveStructure() {
   applyTournamentConfig();
+  // Refresh active round now that ROUNDS may have changed
+  if (!S.activeRound || !ROUNDS[S.activeRound]) S.activeRound = getCurrentRound();
   return sb.from('round_settings').upsert(
     { round_id: '__structure__', tournament_id: S.tournamentId, prizes: JSON.stringify(S.tournamentConfig) },
     { onConflict: 'round_id,tournament_id' }
   ).then(({ error }) => { if (error) console.warn('saveStructure failed:', error.message); });
+}
+
+function saveApiConfig() {
+  return sb.from('round_settings').upsert(
+    { round_id: '__api_config__', tournament_id: S.tournamentId, prizes: JSON.stringify(S.apiConfig) },
+    { onConflict: 'round_id,tournament_id' }
+  ).then(({ error }) => { if (error) console.warn('saveApiConfig failed:', error.message); });
 }
 
 // Persist prize configuration to Supabase so it's visible on every device
@@ -4563,30 +4589,118 @@ function renderAdmin() {
       </div>
       <div class="card" style="margin-bottom:12px">
         <div class="card-title">Round Structure</div>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Enable or disable rounds and set custom display labels. Disabled rounds are hidden from all views and excluded from scoring.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:4px">Toggle rounds on/off, rename them, and drag knockout rounds into order — each knockout reads from the one above it. The first knockout always reads from group standings.</p>
         ${(() => {
-          const base = ROUNDS_MAP[S.tournamentId] || ROUNDS_WC2026;
-          const cfg = S.tournamentConfig;
-          return Object.values(base).map(r => {
-            const disabled = (cfg.disabledRounds || []).includes(r.id);
-            const labelOverride = cfg.roundLabels?.[r.id] || '';
-            return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--faint)">
-              <div class="settings-toggle-track${disabled ? '' : ' on'}" data-round-toggle="${r.id}"
-                style="cursor:pointer;width:36px;height:20px;flex-shrink:0;background:${disabled?'var(--faint)':'var(--gold)'};border-radius:10px;position:relative;transition:background .2s">
-                <div style="position:absolute;top:2px;left:${disabled?'2px':'18px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s"></div>
-              </div>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12px;color:var(--text);font-family:var(--mono)">${r.label}</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.id}${r.knockout?' · Knockout':''}${r.special?' · '+r.special:''}</div>
-              </div>
-              <input type="text" data-round-label="${r.id}" value="${labelOverride.replace(/"/g,'&quot;')}"
-                placeholder="${r.label}" maxlength="40"
-                style="width:130px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);
-                       font-size:12px;padding:5px 8px;font-family:inherit;outline:none;box-sizing:border-box"
-                title="Custom label (leave blank to use default)">
-            </div>`;
-          }).join('');
+          const base = ROUNDS_MAP[S.tournamentId] || {};
+          const cfg  = S.tournamentConfig;
+          const baseRounds = Object.values(base);
+          const customRounds = cfg.customRounds || [];
+          const disabled = rid => (cfg.disabledRounds || []).includes(rid);
+          let html = '';
+
+          // Base rounds (fixed order, no delete/reorder)
+          if (baseRounds.length) {
+            html += `<div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:10px 0 6px">Base Rounds</div>`;
+            html += baseRounds.map(r => {
+              const dis = disabled(r.id);
+              const lbl = cfg.roundLabels?.[r.id] || '';
+              return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--faint)">
+                <div class="settings-toggle-track${dis?'':' on'}" data-round-toggle="${r.id}"
+                  style="cursor:pointer;width:36px;height:20px;flex-shrink:0;background:${dis?'var(--faint)':'var(--gold)'};border-radius:10px;position:relative;transition:background .2s">
+                  <div style="position:absolute;top:2px;left:${dis?'2px':'18px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s"></div>
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12px;color:var(--text);font-family:var(--mono)">${r.label}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.id}${r.knockout?' · Knockout':''}${r.special?' · '+r.special:''}</div>
+                </div>
+                <input type="text" data-round-label="${r.id}" value="${lbl.replace(/"/g,'&quot;')}"
+                  placeholder="${r.label}" maxlength="40"
+                  style="width:130px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);font-size:12px;padding:5px 8px;font-family:inherit;outline:none;box-sizing:border-box"
+                  title="Custom label">
+              </div>`;
+            }).join('');
+          }
+
+          // Custom rounds (reorderable)
+          if (customRounds.length) {
+            if (baseRounds.length) html += `<div style="font-size:10px;color:var(--muted);font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:10px 0 6px">Custom Rounds</div>`;
+            html += customRounds.map((cr, ci) => {
+              const dis = disabled(cr.id);
+              const lbl = cfg.roundLabels?.[cr.id] || '';
+              const badge = cr.knockout
+                ? `<span style="font-size:9px;font-family:var(--mono);background:rgba(255,215,0,.12);color:var(--gold);padding:2px 6px;border-radius:3px">⚡ KO</span>`
+                : `<span style="font-size:9px;font-family:var(--mono);background:rgba(255,255,255,.06);color:var(--muted);padding:2px 6px;border-radius:3px">📋 Group</span>`;
+              const matchRows = (cr.matches || []).map((m, mi) => {
+                const ko = m.kickoff ? new Date(m.kickoff).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--faint);font-size:12px">
+                  <span style="color:var(--muted);font-family:var(--mono);min-width:20px">${mi+1}.</span>
+                  <span style="flex:1;color:var(--text)">${m.home||'?'} <span style="color:var(--muted)">vs</span> ${m.away||'?'}</span>
+                  <span style="color:var(--muted);font-family:var(--mono);font-size:10px">${ko}</span>
+                  <button class="btn btn-sm btn-outline" style="padding:2px 7px;font-size:10px;color:#ef5350;border-color:#ef535033"
+                    data-del-match="${cr.id}" data-match-idx="${mi}">✕</button>
+                </div>`;
+              }).join('');
+              return `<div style="border:1px solid var(--border2);padding:12px 14px;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:${cr.matches?.length?'10px':'0'}">
+                  <div class="settings-toggle-track${dis?'':' on'}" data-round-toggle="${cr.id}"
+                    style="cursor:pointer;width:36px;height:20px;flex-shrink:0;background:${dis?'var(--faint)':'var(--gold)'};border-radius:10px;position:relative;transition:background .2s">
+                    <div style="position:absolute;top:2px;left:${dis?'2px':'18px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s"></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:2px">
+                    <button data-move-round="up" data-idx="${ci}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0;line-height:1" ${ci===0?'disabled style="opacity:.3;cursor:default"':''}>▲</button>
+                    <button data-move-round="down" data-idx="${ci}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0;line-height:1" ${ci===customRounds.length-1?'disabled style="opacity:.3;cursor:default"':''}>▼</button>
+                  </div>
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <input type="text" data-round-label="${cr.id}" value="${(lbl || cr.label).replace(/"/g,'&quot;')}"
+                        placeholder="${cr.label}" maxlength="40"
+                        style="flex:1;background:var(--bg2);border:1px solid var(--border2);color:var(--text);font-size:12px;padding:5px 8px;font-family:inherit;outline:none;box-sizing:border-box">
+                      ${badge}
+                    </div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:3px;font-family:var(--mono)">${cr.id}</div>
+                  </div>
+                  ${S.apiConfig.apiKey ? `<button class="btn btn-sm btn-outline" style="white-space:nowrap;font-size:10px" data-import-round="${cr.id}" data-knockout="${cr.knockout?'1':'0'}">📥 Import</button>` : ''}
+                  <button class="btn btn-sm btn-outline" style="color:#ef5350;border-color:#ef535033;white-space:nowrap" data-del-round="${cr.id}">Delete</button>
+                </div>
+                ${cr.matches?.length ? `<div style="margin-bottom:8px">${matchRows}</div>` : ''}
+                <details style="margin-top:4px">
+                  <summary style="font-size:11px;color:var(--gold);cursor:pointer;font-family:var(--mono);letter-spacing:.05em">+ ADD MATCH</summary>
+                  <div style="display:grid;gap:6px;margin-top:10px;padding:10px;background:rgba(255,255,255,.03)">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                      <input id="nm-home-${cr.id}" placeholder="Home team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                      <input id="nm-away-${cr.id}" placeholder="Away team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                    </div>
+                    <input id="nm-ko-${cr.id}" type="datetime-local" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
+                    <button class="btn btn-sm btn-gold" data-add-match="${cr.id}">Add Match</button>
+                  </div>
+                </details>
+              </div>`;
+            }).join('');
+          }
+
+          if (!baseRounds.length && !customRounds.length) {
+            html = `<p style="font-size:12px;color:var(--muted);padding:8px 0">No rounds yet — use Add Round below.</p>`;
+          }
+
+          return html;
         })()}
+        <details id="add-round-form" style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--gold);font-family:var(--mono);letter-spacing:.08em">+ ADD ROUND</summary>
+          <div style="display:grid;gap:8px;margin-top:12px;padding:12px;background:rgba(255,255,255,.03)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <input id="nr-label" placeholder="Round name (e.g. Week 1, Qualifier)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+              <input id="nr-id" placeholder="ID (e.g. week1, qf_ipl) — no spaces" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <select id="nr-type" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none">
+                <option value="group" style="background:#1a1a1a;color:#fff">Group / Week (non-knockout)</option>
+                <option value="knockout" style="background:#1a1a1a;color:#fff">Knockout</option>
+              </select>
+              <input id="nr-daterange" placeholder="Date range (optional)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            </div>
+            <button class="btn btn-gold" id="nr-submit" style="width:fit-content">Add Round</button>
+          </div>
+        </details>
       </div>
       <div class="card" style="margin-bottom:12px">
         <div class="card-title">Group Stage Settings</div>
@@ -4609,72 +4723,35 @@ function renderAdmin() {
         })()}
       </div>
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title">Custom Rounds</div>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Add rounds not in the base template (e.g. new tournament, extra qualifying stage, or IPL-style weeks). Changes save immediately.</p>
-        <p style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:16px;line-height:1.6">
-          In home/away fields use: <strong style="color:var(--text)">Winner [roundId]-[N]</strong> or <strong style="color:var(--text)">Loser [roundId]-[N]</strong> for knockout references,
-          or <strong style="color:var(--text)">1st Group A</strong> / <strong style="color:var(--text)">Runner-up Group B</strong> for group-stage references.
-          Bracket auto-fill skips disabled rounds automatically.
+        <div class="card-title">🌐 API Integration — football-data.org</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px">
+          Connect to <a href="https://www.football-data.org" target="_blank" style="color:var(--gold)">football-data.org</a> (free account required) to auto-import fixtures into any round.
+          Your API key is stored per-tournament in Supabase — never in code.
         </p>
-        <div id="custom-rounds-list">
-          ${(() => {
-            const crs = S.tournamentConfig.customRounds || [];
-            if (!crs.length) return `<p style="font-size:12px;color:var(--muted);padding:8px 0">No custom rounds yet.</p>`;
-            return crs.map((cr, ci) => {
-              const typeLabel = cr.knockout ? '⚡ Knockout' : '📋 Group / Week';
-              const srcLabel  = cr.sourceRound ? `reads from <strong>${cr.sourceRound}</strong>` : 'no source';
-              const matchRows = (cr.matches || []).map((m, mi) => {
-                const ko = m.kickoff ? new Date(m.kickoff).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
-                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--faint);font-size:12px">
-                  <span style="color:var(--muted);font-family:var(--mono);min-width:22px">${mi+1}.</span>
-                  <span style="flex:1;color:var(--text)">${m.home || '?'} <span style="color:var(--muted)">vs</span> ${m.away || '?'}</span>
-                  <span style="color:var(--muted);font-family:var(--mono);font-size:10px">${ko}</span>
-                  <button class="btn btn-sm btn-outline" style="padding:2px 7px;font-size:10px;color:#ef5350;border-color:#ef535033"
-                    data-del-match="${cr.id}" data-match-idx="${mi}">✕</button>
-                </div>`;
-              }).join('');
-              return `<div style="border:1px solid var(--border2);padding:14px;margin-bottom:10px">
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                  <div style="flex:1">
-                    <div style="font-family:var(--mono);font-size:12px;color:var(--text);font-weight:600">${cr.label}</div>
-                    <div style="font-size:10px;color:var(--muted);margin-top:2px">${typeLabel} · id: <code>${cr.id}</code> · ${srcLabel}${cr.dateRange?' · '+cr.dateRange:''}</div>
-                  </div>
-                  <button class="btn btn-sm btn-outline" style="color:#ef5350;border-color:#ef535033" data-del-round="${cr.id}">Delete Round</button>
-                </div>
-                <div style="margin-bottom:10px">${matchRows || '<p style="font-size:11px;color:var(--muted)">No matches yet.</p>'}</div>
-                <details style="margin-top:8px">
-                  <summary style="font-size:11px;color:var(--gold);cursor:pointer;font-family:var(--mono);letter-spacing:0.05em">+ ADD MATCH</summary>
-                  <div style="display:grid;gap:6px;margin-top:10px;padding:10px;background:rgba(255,255,255,0.03)">
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                      <input id="nm-home-${cr.id}" placeholder="Home team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
-                      <input id="nm-away-${cr.id}" placeholder="Away team / reference" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
-                    </div>
-                    <input id="nm-ko-${cr.id}" type="datetime-local" placeholder="Kickoff (UTC)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;width:100%">
-                    <button class="btn btn-sm btn-gold" data-add-match="${cr.id}">Add Match</button>
-                  </div>
-                </details>
-              </div>`;
-            }).join('');
-          })()}
-        </div>
-        <details id="add-round-form" style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--gold);font-family:var(--mono);letter-spacing:0.08em">+ ADD ROUND</summary>
-          <div style="display:grid;gap:8px;margin-top:12px;padding:12px;background:rgba(255,255,255,0.03)">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <input id="nr-label" placeholder="Round name (e.g. Week 1, Qualifier)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
-              <input id="nr-id" placeholder="ID (e.g. week1, qf_ipl) — no spaces" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-              <select id="nr-type" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none">
-                <option value="group">Group / Week (non-knockout)</option>
-                <option value="knockout">Knockout</option>
-              </select>
-              <input id="nr-source" placeholder="Reads from (round ID)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
-              <input id="nr-daterange" placeholder="Date range (optional)" style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
-            </div>
-            <button class="btn btn-gold" id="nr-submit" style="width:fit-content">Add Round</button>
+        <div style="display:grid;gap:8px">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+            <input id="api-key-input" type="password" placeholder="API key (from your football-data.org account)"
+              value="${S.apiConfig.apiKey || ''}"
+              style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:var(--mono);outline:none;box-sizing:border-box">
+            <button class="btn btn-sm btn-outline" id="api-key-toggle" style="white-space:nowrap">Show</button>
           </div>
-        </details>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+            <input id="api-comp-code" placeholder="Competition code (e.g. WC, EC, PL)"
+              value="${S.apiConfig.competitionCode || ''}"
+              style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            <input id="api-season" placeholder="Season year (e.g. 2026)"
+              value="${S.apiConfig.season || ''}"
+              style="background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box">
+            <button class="btn btn-sm btn-gold" id="api-save-btn" style="white-space:nowrap">Save API Settings</button>
+          </div>
+          <div id="api-status" style="font-size:11px;font-family:var(--mono);color:var(--muted)">
+            ${S.apiConfig.apiKey ? `✓ API key saved · competition: <strong style="color:var(--text)">${S.apiConfig.competitionCode||'?'}</strong> · season: <strong style="color:var(--text)">${S.apiConfig.season||'?'}</strong>` : 'No API key saved yet.'}
+          </div>
+          <p style="font-size:11px;color:var(--muted);font-family:var(--mono);line-height:1.6;margin-top:4px">
+            Common codes: <strong style="color:var(--text)">WC</strong> = FIFA World Cup · <strong style="color:var(--text)">EC</strong> = UEFA Euros · <strong style="color:var(--text)">PL</strong> = Premier League · <strong style="color:var(--text)">CL</strong> = Champions League<br>
+            Find your competition code at football-data.org/coverage
+          </p>
+        </div>
       </div>
       <div style="margin-top:4px">
         <button class="btn btn-gold" id="settings-save-btn">Save Settings</button>
@@ -7089,20 +7166,161 @@ function attachEvents() {
       const label  = document.getElementById('nr-label')?.value.trim();
       let   id     = document.getElementById('nr-id')?.value.trim().replace(/\s+/g, '_').toLowerCase();
       const type   = document.getElementById('nr-type')?.value;
-      const source = document.getElementById('nr-source')?.value.trim();
       const dr     = document.getElementById('nr-daterange')?.value.trim();
       if (!label || !id) { alert('Round name and ID are required.'); return; }
       if (S.tournamentConfig.customRounds.find(r => r.id === id) || ROUNDS_MAP[S.tournamentId]?.[id]) {
         alert(`Round ID "${id}" already exists. Choose a different ID.`); return;
       }
       S.tournamentConfig.customRounds.push({
-        id, label, knockout: type === 'knockout', sourceRound: source || null,
+        id, label, knockout: type === 'knockout',
         dateRange: dr || '', matches: [], bonusQuestions: [],
       });
       await saveStructure();
       render();
     };
   }
+
+  // Admin: API key show/hide toggle
+  const apiKeyToggle = document.getElementById('api-key-toggle');
+  if (apiKeyToggle) {
+    apiKeyToggle.onclick = () => {
+      const inp = document.getElementById('api-key-input');
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      apiKeyToggle.textContent = show ? 'Hide' : 'Show';
+    };
+  }
+
+  // Admin: Save API settings
+  const apiSaveBtn = document.getElementById('api-save-btn');
+  if (apiSaveBtn) {
+    apiSaveBtn.onclick = async () => {
+      const key  = document.getElementById('api-key-input')?.value.trim();
+      const code = document.getElementById('api-comp-code')?.value.trim().toUpperCase();
+      const year = document.getElementById('api-season')?.value.trim();
+      if (!key) { alert('Enter your football-data.org API key.'); return; }
+      if (!code) { alert('Enter a competition code (e.g. WC, EC).'); return; }
+      if (!year) { alert('Enter a season year (e.g. 2026).'); return; }
+      apiSaveBtn.textContent = 'Saving…'; apiSaveBtn.disabled = true;
+      S.apiConfig = { apiKey: key, competitionCode: code, season: year };
+      await saveApiConfig();
+      apiSaveBtn.textContent = 'Save API Settings'; apiSaveBtn.disabled = false;
+      const status = document.getElementById('api-status');
+      if (status) status.innerHTML = `✓ Saved · competition: <strong style="color:var(--text)">${code}</strong> · season: <strong style="color:var(--text)">${year}</strong>`;
+      render(); // re-render to show Import buttons on rounds
+    };
+  }
+
+  // Admin: Import fixtures from football-data.org
+  const FD_STAGE_MAP = {
+    r32: 'ROUND_OF_32', r16: 'ROUND_OF_16', ro32: 'ROUND_OF_32', ro16: 'ROUND_OF_16',
+    qf: 'QUARTER_FINALS', sf: 'SEMI_FINALS', final: 'FINAL', fp: 'THIRD_PLACE',
+    '3rd': 'THIRD_PLACE', third: 'THIRD_PLACE',
+  };
+  document.querySelectorAll('[data-import-round]').forEach(btn => {
+    btn.onclick = async () => {
+      const rid      = btn.dataset.importRound;
+      const isKnockout = btn.dataset.knockout === '1';
+      const cr       = S.tournamentConfig.customRounds.find(r => r.id === rid);
+      if (!cr) return;
+      const { apiKey, competitionCode, season } = S.apiConfig;
+      if (!apiKey || !competitionCode || !season) {
+        alert('Set up your API key, competition code, and season in the API Integration section above first.'); return;
+      }
+
+      // Determine what to fetch
+      let stageParam = '';
+      let matchdayParam = '';
+      if (isKnockout) {
+        const mapped = FD_STAGE_MAP[rid.toLowerCase()] || FD_STAGE_MAP[rid.replace(/\d/g,'').toLowerCase()];
+        if (mapped) {
+          stageParam = mapped;
+        } else {
+          const choice = prompt(`Enter the stage code for "${cr.label}":\n\nOptions: ROUND_OF_32, ROUND_OF_16, QUARTER_FINALS, SEMI_FINALS, FINAL, THIRD_PLACE`);
+          if (!choice) return;
+          stageParam = choice.trim().toUpperCase();
+        }
+      } else {
+        // Group/week round — derive matchday from round ID number, or ask
+        const numMatch = rid.match(/\d+/);
+        const defaultDay = numMatch ? numMatch[0] : '1';
+        const day = prompt(`Import which matchday for "${cr.label}"?`, defaultDay);
+        if (!day) return;
+        matchdayParam = day.trim();
+      }
+
+      btn.textContent = '⏳ Fetching…'; btn.disabled = true;
+      try {
+        let fdUrl = `https://api.football-data.org/v4/competitions/${competitionCode}/matches?season=${season}`;
+        if (stageParam)    fdUrl += `&stage=${stageParam}`;
+        if (matchdayParam) fdUrl += `&matchday=${matchdayParam}`;
+        // Try direct first, fall back to CORS proxy (football-data.org blocks browser requests)
+        let data;
+        try {
+          const r = await fetch(fdUrl, { headers: { 'X-Auth-Token': apiKey } });
+          if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`HTTP ${r.status}`); }
+          data = await r.json();
+        } catch(corsErr) {
+          // CORS proxy fallback — key travels in the proxied URL so only use on trusted deployments
+          const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(fdUrl)}&headers=${encodeURIComponent(JSON.stringify({'X-Auth-Token': apiKey}))}`;
+          const r2 = await fetch(proxyUrl);
+          if (!r2.ok) throw new Error(`Proxy also failed: HTTP ${r2.status}`);
+          data = await r2.json();
+          // corsproxy.io wraps the body in {contents: "..."}
+          if (typeof data.contents === 'string') data = JSON.parse(data.contents);
+        }
+        const matches = data.matches || [];
+        if (!matches.length) { alert(`No matches found for that stage/matchday. Check competition code "${competitionCode}" and season "${season}" at football-data.org.`); return; }
+
+        let added = 0;
+        const existingIds = new Set((cr.matches || []).map(m => m.id));
+        for (const m of matches) {
+          const home = m.homeTeam?.shortName || m.homeTeam?.name || 'TBD';
+          const away = m.awayTeam?.shortName || m.awayTeam?.name || 'TBD';
+          const kickoff = m.utcDate || '';
+          const idx = (cr.matches?.length || 0) + 1;
+          const mid = `${rid}_m${idx}`;
+          if (!existingIds.has(mid)) {
+            cr.matches = cr.matches || [];
+            cr.matches.push({ id: mid, home, away, kickoff });
+            existingIds.add(mid);
+            added++;
+          }
+        }
+        await saveStructure();
+        render();
+        if (added) alert(`✓ Imported ${added} match${added!==1?'es':''} into "${cr.label}".`);
+        else alert('All matches already exist in this round — nothing new imported.');
+      } catch(e) {
+        alert(`Import failed: ${e.message}\n\nIf you see a CORS error, football-data.org may require requests to come from a registered domain. Contact support@football-data.org to whitelist your domain.`);
+        btn.textContent = '📥 Import'; btn.disabled = false;
+      }
+    };
+  });
+
+  // Admin: Move Round up/down (reorder changes knockout chain)
+  document.querySelectorAll('[data-move-round]').forEach(btn => {
+    btn.onclick = async () => {
+      // Collect any unsaved label edits before reordering so renames aren't lost
+      const customRoundIds = new Set((S.tournamentConfig.customRounds || []).map(r => r.id));
+      document.querySelectorAll('[data-round-label]').forEach(inp => {
+        const rid = inp.dataset.roundLabel;
+        const val = inp.value.trim();
+        if (customRoundIds.has(rid)) {
+          const cr = S.tournamentConfig.customRounds.find(r => r.id === rid);
+          if (cr && val) cr.label = val;
+        }
+      });
+      const dir = btn.dataset.moveRound;
+      const idx = parseInt(btn.dataset.idx);
+      const crs = S.tournamentConfig.customRounds;
+      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= crs.length) return;
+      [crs[idx], crs[swapWith]] = [crs[swapWith], crs[idx]];
+      await saveStructure();
+      render();
+    };
+  });
 
   // Admin: Delete Round
   document.querySelectorAll('[data-del-round]').forEach(btn => {
@@ -7172,9 +7390,17 @@ function attachEvents() {
         if (!track.classList.contains('on')) disabledRounds.push(track.dataset.roundToggle);
       });
       const roundLabels = {};
+      const customRoundIds = new Set((S.tournamentConfig.customRounds || []).map(r => r.id));
       document.querySelectorAll('[data-round-label]').forEach(inp => {
+        const rid = inp.dataset.roundLabel;
         const val = inp.value.trim();
-        if (val) roundLabels[inp.dataset.roundLabel] = val;
+        if (customRoundIds.has(rid)) {
+          // For custom rounds, update the label on the round object directly
+          const cr = S.tournamentConfig.customRounds.find(r => r.id === rid);
+          if (cr && val) cr.label = val;
+        } else if (val) {
+          roundLabels[rid] = val;
+        }
       });
       S.tournamentConfig = {
         ...S.tournamentConfig,
