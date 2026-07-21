@@ -7261,13 +7261,11 @@ function attachEvents() {
           if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.message||`HTTP ${r.status}`); }
           data = await r.json();
         } catch(corsErr) {
-          // CORS proxy fallback — key travels in the proxied URL so only use on trusted deployments
-          const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(fdUrl)}&headers=${encodeURIComponent(JSON.stringify({'X-Auth-Token': apiKey}))}`;
-          const r2 = await fetch(proxyUrl);
+          // CORS proxy fallback — corsproxy.io forwards all request headers to the target
+          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(fdUrl)}`;
+          const r2 = await fetch(proxyUrl, { headers: { 'X-Auth-Token': apiKey } });
           if (!r2.ok) throw new Error(`Proxy also failed: HTTP ${r2.status}`);
           data = await r2.json();
-          // corsproxy.io wraps the body in {contents: "..."}
-          if (typeof data.contents === 'string') data = JSON.parse(data.contents);
         }
         const matches = data.matches || [];
         if (!matches.length) { alert(`No matches found for that stage/matchday. Check competition code "${competitionCode}" and season "${season}" at football-data.org.`); return; }
