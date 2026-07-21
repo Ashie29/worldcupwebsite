@@ -63,7 +63,7 @@ a{color:var(--gold);text-decoration:none;}
 .dashboard-main{flex:1;min-width:0;}
 .dashboard-side{width:300px;flex-shrink:0;}
 @media (max-width:1100px){
-  .dashboard-grid{flex-direction:column;}
+  .dashboard-grid{flex-direction:column;align-items:stretch;}
   .dashboard-side{width:100%;}
 }
 
@@ -791,6 +791,14 @@ const S = {
   scoring: { winnerPts:2, exactScorePts:1, scoreWrongTeamPts:1, ptGroupFirstPts:2, ptGroupQualPts:1, ptWinnerPts:10 },
   hiddenTabs: [],  // tab ids hidden for this tournament
   tagDescs: {},    // tagId → custom description override
+  tournamentConfig: {  // per-tournament structure config (loaded from Supabase __structure__)
+    disabledRounds: [],
+    roundLabels: {},
+    numGroups: 12,
+    groupSize: 4,
+    advancersPerGroup: 2,
+    best3rdAdvancers: 8,
+  },
   lockSchedules: {},  // rid → { lockAt: ISO string, unlockAt: ISO string }
   bracketTeams: {},   // mid → { home: string, away: string }
   myFeedback: null,       // current user's own feedback submission or null
@@ -811,6 +819,9 @@ const S = {
   activeMoveRound: null, // selected round in "Most Positions Gained" card
   moveCardOpen: false,  // whether the Most Positions Gained card is expanded
   bonusRecapOpen: {},   // rid → bool — whether the bonus recap card is expanded on dashboard
+  tournamentName: 'WC 2026',    // full name from tournaments table
+  tournamentShort: 'WC26',      // abbreviated for nav
+  isRegistered: true,           // whether current user is registered for this tournament
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -1299,14 +1310,56 @@ function getLeaderboard() {
 // ════════════════════════════════════════════════════════════════
 // 6. SUPABASE DATA LAYER
 // ════════════════════════════════════════════════════════════════
-async function loadAllData() {
-  // tournament status
-  const { data: tData } = await sb.from('tournaments').select('status').eq('id', S.tournamentId).single();
-  S.tournamentClosed = tData?.status === 'closed';
+function abbrevTournamentName(name) {
+  if (!name) return 'POOL';
+  return name
+    .replace(/\bFIFA\b\s*/gi, '')
+    .replace(/\bWorld Cup\b/gi, 'WC')
+    .replace(/\bEuropean Championship\b/gi, 'EURO')
+    .replace(/\s+/g, '')
+    .toUpperCase()
+    .slice(0, 8);
+}
 
-  // profiles
+// Rebuild ROUNDS from the base template + tournament structure config.
+// Called after config is loaded (or when config changes) so all ROUNDS consumers
+// automatically see the filtered/relabelled round set.
+function applyTournamentConfig() {
+  const base = ROUNDS_MAP[S.tournamentId] || ROUNDS_WC2026;
+  const cfg  = S.tournamentConfig;
+  const disabled = new Set(cfg.disabledRounds || []);
+  ROUNDS = Object.fromEntries(
+    Object.entries(base)
+      .filter(([id]) => !disabled.has(id))
+      .map(([id, r]) => {
+        const label = cfg.roundLabels?.[id];
+        return [id, label ? { ...r, label } : r];
+      })
+  );
+}
+
+async function loadAllData() {
+  // tournament status + name
+  const { data: tData } = await sb.from('tournaments').select('status,name').eq('id', S.tournamentId).single();
+  S.tournamentClosed = tData?.status === 'closed';
+  S.tournamentName  = tData?.name || 'WC 2026';
+  S.tournamentShort = abbrevTournamentName(S.tournamentName);
+
+  // tournament registrations (graceful fallback if table doesn't exist yet)
+  const { data: regs, error: regErr } = await sb.from('tournament_registrations')
+    .select('user_id').eq('tournament_id', S.tournamentId);
+  const registeredIds = regErr ? null : new Set((regs || []).map(r => r.user_id));
+  if (S.user && !S.profile?.is_admin) {
+    S.isRegistered = registeredIds ? registeredIds.has(S.user.id) : true;
+  } else {
+    S.isRegistered = true;
+  }
+
+  // profiles — scoped to registered players only (or all if table not yet set up)
   const { data: profiles } = await sb.from('profiles').select('*');
-  S.profiles = profiles || [];
+  S.profiles = (profiles || []).filter(p =>
+    !p.is_admin && (registeredIds ? registeredIds.has(p.id) : true)
+  );
 
   // picks — fetch per round to stay under Supabase's 1000-row server cap
   S.picks = {};
@@ -1457,6 +1510,16 @@ async function loadAllData() {
       if (cfg.tagDescs && typeof cfg.tagDescs === 'object') S.tagDescs = cfg.tagDescs;
     } catch(e) {}
   }
+
+  // tournament structure config (disabled rounds, label overrides, group settings)
+  const { data: structCfg } = await sb.from('round_settings').select('prizes').eq('round_id','__structure__').eq('tournament_id', S.tournamentId).single();
+  if (structCfg?.prizes) {
+    try {
+      const cfg = JSON.parse(structCfg.prizes);
+      if (cfg && typeof cfg === 'object') S.tournamentConfig = { ...S.tournamentConfig, ...cfg };
+    } catch(e) {}
+  }
+  applyTournamentConfig();
 
   // current user's own feedback submission
   if (S.user?.id) {
@@ -2040,6 +2103,54 @@ function showPlayerModal(profile) {
 // 9. RENDERERS
 // ════════════════════════════════════════════════════════════════
 
+// ── Registration gate ─────────────────────────────────────────────
+function renderRegisterGate() {
+  const name = S.profile?.nickname || S.profile?.name || 'you';
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div style="margin-bottom:14px;font-size:12px;font-family:var(--mono)">
+          <a href="tournaments.html" style="color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:5px">← All Tournaments</a>
+        </div>
+        <div class="auth-logo">⚽</div>
+        <div class="auth-title">${S.tournamentName}</div>
+        <div class="auth-sub" style="margin-bottom:20px">
+          Signed in as <strong style="color:var(--text)">${name}</strong>.<br>
+          Register to join this tournament and make your picks.
+        </div>
+        <div id="reg-msg" style="font-size:12px;color:#ef9a9a;margin-bottom:10px;font-family:var(--mono)"></div>
+        <button class="btn btn-gold" id="reg-join-btn" style="width:100%;margin-bottom:10px">
+          Register for ${S.tournamentName} →
+        </button>
+        <button class="btn btn-outline" id="reg-signout-btn" style="width:100%;font-size:12px">
+          Sign in with a different account
+        </button>
+      </div>
+    </div>`;
+
+  document.getElementById('reg-join-btn').onclick = async () => {
+    const btn = document.getElementById('reg-join-btn');
+    const msg = document.getElementById('reg-msg');
+    btn.textContent = 'Registering…'; btn.disabled = true;
+    const { error } = await sb.from('tournament_registrations')
+      .insert({ tournament_id: S.tournamentId, user_id: S.user.id });
+    if (error) {
+      msg.textContent = '✗ ' + error.message;
+      btn.textContent = `Register for ${S.tournamentName} →`; btn.disabled = false;
+    } else {
+      S.isRegistered = true;
+      await loadAllData();
+      render();
+    }
+  };
+
+  document.getElementById('reg-signout-btn').onclick = () => {
+    sb.auth.signOut();
+    S.user = null; S.profile = null;
+    renderAuth();
+  };
+}
+
 // ── Auth ─────────────────────────────────────────────────────────
 function renderAuth() {
   const isLogin   = S.authMode === 'login';
@@ -2053,7 +2164,7 @@ function renderAuth() {
           <a href="tournaments.html" style="color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:5px">← All Tournaments</a>
         </div>
         <div class="auth-logo">⚽</div>
-        <div class="auth-title">WC 2026 Fantasy Pool</div>
+        <div class="auth-title">${S.tournamentName} Fantasy Pool</div>
 
         <div style="display:flex;gap:8px;margin-bottom:20px">
           <button id="tab-player" style="flex:1;padding:9px;border-radius:10px;border:2px solid ${isPlayer?'var(--gold)':'var(--faint)'};
@@ -2337,7 +2448,7 @@ function renderShell(content) {
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
     <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <span style="color:var(--gold);font-weight:bold;font-size:16px">⚽&nbsp; WC26 Menu</span>
+        <span style="color:var(--gold);font-weight:bold;font-size:16px">⚽&nbsp; ${S.tournamentShort} Menu</span>
         <button class="sidebar-close" id="sidebar-close">✕</button>
       </div>
       <div class="sidebar-section">
@@ -2412,7 +2523,7 @@ function renderShell(content) {
       <button class="hamburger" id="hamburger-btn">
         <span></span><span></span><span></span>
       </button>
-      <span class="nav-brand">⚽ WC26</span>
+      <span class="nav-brand">⚽ ${S.tournamentShort}</span>
       <div class="nav-tabs">${tabs.map(t => `<button class="nav-tab ${S.page===t.id?'active':''}" data-page="${t.id}">${t.label}</button>`).join('')}</div>
       <div class="nav-right">
         <span class="nav-user">${dispName}</span>
@@ -2569,7 +2680,7 @@ function renderPicks() {
   if (round.special === 'pretournament') {
     const winPts = S.ptSettings?.winnerPts ?? 10;
     const allTeams = Object.values(GROUPS).flat().sort();
-    const maxGroupPts = Object.keys(GROUPS).length * 4; // 12 × 4 = 48
+    const maxGroupPts = (S.tournamentConfig?.numGroups ?? Object.keys(GROUPS).length) * (S.tournamentConfig?.advancersPerGroup ?? 2) * 2;
     const ptBonusQsForMax = getActiveQuestions('pt');
     const { bonus: ptBMult } = getMultipliers('pt');
     const ptBonusMaxPts = ptBonusQsForMax.reduce((sum, q) => sum + q.pts * ptBMult, 0);
@@ -2637,7 +2748,7 @@ function renderPicks() {
       <div class="pill-row">${pillsHtml}</div>
       <div class="round-dates">📅 Before Jun 11 · Lock in your pre-tournament predictions</div>
       <div class="notice" style="margin-bottom:16px">
-        🏆 Up for grabs: <strong>${totalMax} pts</strong> — ${maxGroupPts} from group picks (12 groups × max 4 pts) + ${winPts} from tournament winner${ptBonusNote}
+        🏆 Up for grabs: <strong>${totalMax} pts</strong> — ${maxGroupPts} from group picks (${S.tournamentConfig?.numGroups ?? Object.keys(GROUPS).length} groups × max ${(S.tournamentConfig?.advancersPerGroup ?? 2) * 2} pts) + ${winPts} from tournament winner${ptBonusNote}
       </div>
       <div class="card">
         <div class="card-title">🏆 Group Stage Predictions</div>
@@ -3004,7 +3115,7 @@ function renderLeaderboard() {
   };
 
   const achIcons = p => (p.achievements || [])
-    .filter(a => a.type !== 'tournament_winner')
+    .filter(a => a.type !== 'tournament_winner' && (!a.tid || a.tid === S.tournamentId))
     .slice(0, 5)
     .map(a => ACHIEVEMENTS[a.type] ? `<span class="ach-icon" title="${ACHIEVEMENTS[a.type].label}">${ACHIEVEMENTS[a.type].icon}</span>` : '')
     .join('');
@@ -4352,6 +4463,53 @@ function renderAdmin() {
               placeholder="${t.text}">${(S.tagDescs[t.id] || '').replace(/</g,'&lt;')}</textarea>
           </div>`).join('')}
       </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Round Structure</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Enable or disable rounds and set custom display labels. Disabled rounds are hidden from all views and excluded from scoring.</p>
+        ${(() => {
+          const base = ROUNDS_MAP[S.tournamentId] || ROUNDS_WC2026;
+          const cfg = S.tournamentConfig;
+          return Object.values(base).map(r => {
+            const disabled = (cfg.disabledRounds || []).includes(r.id);
+            const labelOverride = cfg.roundLabels?.[r.id] || '';
+            return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--faint)">
+              <div class="settings-toggle-track${disabled ? '' : ' on'}" data-round-toggle="${r.id}"
+                style="cursor:pointer;width:36px;height:20px;flex-shrink:0;background:${disabled?'var(--faint)':'var(--gold)'};border-radius:10px;position:relative;transition:background .2s">
+                <div style="position:absolute;top:2px;left:${disabled?'2px':'18px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s"></div>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;color:var(--text);font-family:var(--mono)">${r.label}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.id}${r.knockout?' · Knockout':''}${r.special?' · '+r.special:''}</div>
+              </div>
+              <input type="text" data-round-label="${r.id}" value="${labelOverride.replace(/"/g,'&quot;')}"
+                placeholder="${r.label}" maxlength="40"
+                style="width:130px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);
+                       font-size:12px;padding:5px 8px;font-family:inherit;outline:none;box-sizing:border-box"
+                title="Custom label (leave blank to use default)">
+            </div>`;
+          }).join('');
+        })()}
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Group Stage Settings</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Controls how groups are displayed and how pre-tournament picks are scored. Actual group compositions are set in code.</p>
+        ${(() => {
+          const cfg = S.tournamentConfig;
+          const numField = (id, label, val, desc) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--faint)">
+              <div>
+                <div style="font-size:13px;color:var(--text)">${label}</div>
+                ${desc ? `<div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px">${desc}</div>` : ''}
+              </div>
+              <input type="number" min="1" max="32" step="1" id="${id}" value="${val}"
+                class="admin-score" style="width:54px;text-align:center;font-size:14px">
+            </div>`;
+          return numField('cfg-num-groups',        'Number of groups',         cfg.numGroups,         'e.g. 12 for WC, 6 for EUROs, 0 for no groups')
+               + numField('cfg-group-size',        'Teams per group',          cfg.groupSize,         'e.g. 4 for most tournaments')
+               + numField('cfg-advancers-group',   'Advancers per group',      cfg.advancersPerGroup, 'Teams that qualify automatically from each group')
+               + numField('cfg-best-third',        'Best 3rd-place advancers', cfg.best3rdAdvancers,  'Extra teams advancing as best 3rd-placed (0 if none)');
+        })()}
+      </div>
       <div style="margin-top:4px">
         <button class="btn btn-gold" id="settings-save-btn">Save Settings</button>
         <span id="settings-save-msg" style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-left:12px"></span>
@@ -4649,7 +4807,11 @@ function computeGroupStandings() {
   for (const [g, teams] of Object.entries(GROUPS)) {
     standings[g] = teams.map(t => ({ team: t, played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, pts:0 }));
   }
-  for (const rid of ['gs1','gs2','gs3']) {
+  // Use all non-knockout, non-pretournament rounds as group-stage rounds
+  const groupRoundIds = Object.values(ROUNDS)
+    .filter(r => !r.knockout && r.special !== 'pretournament')
+    .map(r => r.id);
+  for (const rid of groupRoundIds) {
     const round = ROUNDS[rid];
     if (!round) continue;
     for (const m of round.matches) {
@@ -4684,12 +4846,13 @@ function renderGroups() {
   const standings = computeGroupStandings();
   const anyResults = Object.values(standings).some(g => g.some(t => t.played > 0));
 
-  // Identify the best 8 third-place teams (by pts → gd → gf) — they also advance in WC2026
+  // Identify the best N third-place teams — they also advance (count from config)
+  const best3rdCount = S.tournamentConfig?.best3rdAdvancers ?? 8;
   const thirdPlaceTeams = Object.values(standings)
     .map(teams => teams[2])
     .filter(t => t && t.played > 0)
     .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
-  const best8Third = new Set(thirdPlaceTeams.slice(0, 8).map(t => t.team));
+  const best8Third = new Set(thirdPlaceTeams.slice(0, best3rdCount).map(t => t.team));
 
   const groupCards = Object.entries(standings).map(([g, teams]) => {
     const hasData = teams.some(t => t.played > 0);
@@ -6038,6 +6201,7 @@ function render() {
   _rendering = true;
   try {
     if (!S.user) { renderAuth(); return; }
+    if (!S.profile?.is_admin && !S.isRegistered) { renderRegisterGate(); return; }
     let content = '';
     switch(S.page) {
       case 'dashboard':   content = renderDashboard(); break;
@@ -6743,6 +6907,15 @@ function attachEvents() {
     };
   });
 
+  // Admin: round-toggle clicks in settings tab (toggle the knob immediately; saved on Save)
+  document.querySelectorAll('[data-round-toggle]').forEach(track => {
+    track.onclick = () => {
+      const on = track.classList.toggle('on');
+      track.style.background = on ? 'var(--gold)' : 'var(--faint)';
+      track.querySelector('div').style.left = on ? '18px' : '2px';
+    };
+  });
+
   // Admin: settings save
   const settingsSaveBtn = document.getElementById('settings-save-btn');
   if (settingsSaveBtn) {
@@ -6761,14 +6934,37 @@ function attachEvents() {
         if (val) S.tagDescs[tid] = val;
         else delete S.tagDescs[tid];
       });
+      // collect tournament structure config
+      const disabledRounds = [];
+      document.querySelectorAll('[data-round-toggle]').forEach(track => {
+        if (!track.classList.contains('on')) disabledRounds.push(track.dataset.roundToggle);
+      });
+      const roundLabels = {};
+      document.querySelectorAll('[data-round-label]').forEach(inp => {
+        const val = inp.value.trim();
+        if (val) roundLabels[inp.dataset.roundLabel] = val;
+      });
+      S.tournamentConfig = {
+        ...S.tournamentConfig,
+        disabledRounds,
+        roundLabels,
+        numGroups:        parseInt(document.getElementById('cfg-num-groups')?.value)      || 12,
+        groupSize:        parseInt(document.getElementById('cfg-group-size')?.value)       || 4,
+        advancersPerGroup:parseInt(document.getElementById('cfg-advancers-group')?.value)  || 2,
+        best3rdAdvancers: parseInt(document.getElementById('cfg-best-third')?.value)       || 8,
+      };
+      applyTournamentConfig();
+      // persist structure config
+      await sb.from('round_settings').upsert(
+        { round_id: '__structure__', tournament_id: S.tournamentId, prizes: JSON.stringify(S.tournamentConfig) },
+        { onConflict: 'round_id,tournament_id' }
+      );
       saveScoring();
       const msg = document.getElementById('settings-save-msg');
-      setTimeout(() => {
-        if (msg) { msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a'; }
-        settingsSaveBtn.disabled = false;
-        settingsSaveBtn.textContent = 'Save Settings';
-        render();
-      }, 600);
+      if (msg) { msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a'; }
+      settingsSaveBtn.disabled = false;
+      settingsSaveBtn.textContent = 'Save Settings';
+      render();
     };
   }
 

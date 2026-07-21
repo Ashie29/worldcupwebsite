@@ -62,6 +62,11 @@ body::before{content:'';position:fixed;inset:0;
 .tile:hover{border-color:var(--border);}
 .tile.tile-static{cursor:default;opacity:0.6;filter:grayscale(25%);}
 .tile.tile-static:hover{border-color:var(--border2);}
+.tile.tile-upcoming-locked{cursor:default;opacity:0.7;}
+.tile.tile-upcoming-locked:hover{border-color:var(--border2);}
+.tile-coming-soon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,0.55);font-family:var(--mono);font-size:11px;letter-spacing:0.08em;
+  color:var(--muted);z-index:2;pointer-events:none;}
 .tile-view-link{display:block;margin-top:10px;font-family:var(--mono);font-size:9px;
   letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.7;}
 .tile-banner{width:100%;height:140px;object-fit:cover;display:block;background:var(--faint);}
@@ -460,6 +465,8 @@ function renderPage() {
     tile.addEventListener('click', e => {
       if (e.target.closest('.tile-gear')) return;
       const tid = tile.dataset.tid;
+      const status = tile.dataset.status;
+      if (status === 'upcoming' && !T.profile?.is_admin) return;
       location.href = `index.html?t=${tid}`;
     });
   });
@@ -510,8 +517,10 @@ function renderTile(t, isAdmin, inPast = false) {
     </div>`;
   }
 
-  return `<div class="tile" data-tid="${t.id}">
+  const isUpcomingLocked = t.status === 'upcoming' && !isAdmin;
+  return `<div class="tile${isUpcomingLocked ? ' tile-upcoming-locked' : ''}" data-tid="${t.id}" data-status="${t.status}">
     ${banner}
+    ${isUpcomingLocked ? `<div class="tile-coming-soon">🔒 Registration not open yet</div>` : ''}
     <span class="status-badge ${statusClass}">${statusText}</span>
     ${isAdmin ? `<div class="tile-admin"><button class="tile-gear" data-tid="${t.id}" title="Edit tournament">⚙</button></div>` : ''}
     <div class="tile-body">
