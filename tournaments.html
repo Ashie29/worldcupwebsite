@@ -652,7 +652,16 @@ function showEditModal(t) {
     </div>
     <div class="field"><label class="field-label">Prize Pool</label><input class="input" id="m-prize" value="${t.prize_pool||''}"></div>
     <div class="field"><label class="field-label">Winner Badge Label</label><input class="input" id="m-badge" value="${t.badge_label||''}"></div>
-    <div class="field"><label class="field-label">Banner Image URL</label><input class="input" id="m-banner" value="${t.banner_url||''}"></div>
+    <div class="field">
+      <label class="field-label">Banner Image URL</label>
+      <input class="input" id="m-banner" value="${t.banner_url||''}" placeholder="https://…">
+      <div id="m-banner-preview" style="margin-top:8px;${t.banner_url ? '' : 'display:none'}">
+        <img id="m-banner-img" src="${t.banner_url||''}" alt="" style="width:100%;height:100px;object-fit:cover;display:block;background:var(--card2)"
+          onerror="document.getElementById('m-banner-status').textContent='⚠ Image failed to load — URL may block hotlinking';document.getElementById('m-banner-status').style.color='#ef9a9a';this.style.opacity='.2'"
+          onload="document.getElementById('m-banner-status').textContent='✓ Image loaded';document.getElementById('m-banner-status').style.color='#66bb6a';this.style.opacity='1'">
+        <div id="m-banner-status" style="font-size:10px;font-family:var(--mono);margin-top:4px;color:var(--muted)"></div>
+      </div>
+    </div>
 
     <div style="border-top:1px solid var(--faint);margin:20px 0;padding-top:16px">
       <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;margin-bottom:12px">Award Winner Badge</div>
@@ -666,6 +675,20 @@ function showEditModal(t) {
     <div class="modal-status" id="m-msg"></div>
   `);
   document.getElementById('m-cancel-btn').onclick = closeModal;
+
+  // Banner URL live preview
+  document.getElementById('m-banner').addEventListener('input', function() {
+    const url = this.value.trim();
+    const preview = document.getElementById('m-banner-preview');
+    const img = document.getElementById('m-banner-img');
+    const status = document.getElementById('m-banner-status');
+    if (!url) { preview.style.display = 'none'; return; }
+    preview.style.display = 'block';
+    status.textContent = 'Loading…';
+    status.style.color = 'var(--muted)';
+    img.style.opacity = '0.4';
+    img.src = url;
+  });
 
   // Load players for badge award
   sb.from('profiles').select('id,name,nickname,achievements').eq('is_admin', false).then(({ data }) => {

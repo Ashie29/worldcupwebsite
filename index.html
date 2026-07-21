@@ -189,7 +189,7 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .lb-table tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
 .lb-table tr.gold-row td{background:rgba(232,213,163,.05);}
 .rank-icon{font-size:16px;}
-.lb-pts{color:var(--green);font-weight:500;font-size:15px;font-family:var(--mono);}
+.lb-pts{color:var(--green);font-weight:500;font-size:15px;font-family:var(--mono);white-space:nowrap;}
 .lb-bar-wrap{height:2px;background:rgba(255,255,255,.06);width:80px;display:inline-block;}
 .lb-dots{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
 .lb-badge-dot-wrap{width:14px;height:14px;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
@@ -419,8 +419,9 @@ body.light-mode .modal-stat{background:rgba(0,0,0,0.03);}
   .nav{padding:0 8px;}
   .nav-brand{font-size:17px;margin-right:6px;flex-shrink:0;}
   .nav-right{display:none;}
-  .nav-tabs{flex:1;}
-  .nav-tab{flex:1;padding:6px 4px;font-size:10px;text-align:center;}
+  .nav-tabs{flex:1;overflow-x:auto;scrollbar-width:none;}
+  .nav-tabs::-webkit-scrollbar{display:none;}
+  .nav-tab{flex-shrink:0;padding:6px 12px;font-size:10px;}
 }
 
 @media(max-width:600px){
