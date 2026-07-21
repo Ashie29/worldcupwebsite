@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vermani Pool — Tournaments</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --bg:#0a0a0a; --card:#111111; --card2:#181818;
+  --gold:#e8d5a3; --gold2:#c4a96a;
+  --text:#f0ede8; --muted:#6b6660; --faint:#2a2a2a;
+  --border:rgba(232,213,163,0.14); --border2:rgba(255,255,255,0.07);
+  --green:#4CAF50; --red:#d94f3d;
+  --mono:'DM Mono',monospace; --sans:'DM Sans',sans-serif; --display:'Bebas Neue',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-weight:300;min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity:0.025;pointer-events:none;z-index:9000;}
+
+/* Nav */
+.nav{background:rgba(10,10,10,0.95);border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;padding:0 24px;height:52px;
+  position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);}
+.nav-brand{font-family:var(--display);letter-spacing:0.1em;color:var(--gold);font-size:22px;flex:1;}
+.nav-right{display:flex;align-items:center;gap:10px;}
+.nav-user{font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:0.08em;}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 18px;border:none;cursor:pointer;
+  font-size:10px;font-weight:500;transition:all .15s;font-family:var(--mono);letter-spacing:0.15em;text-transform:uppercase;}
+.btn-gold{background:var(--gold);color:#0a0a0a;}
+.btn-gold:hover{background:var(--gold2);}
+.btn-outline{background:transparent;border:1px solid var(--border2);color:var(--muted);}
+.btn-outline:hover{border-color:var(--gold);color:var(--gold);}
+.btn-danger{background:transparent;border:1px solid var(--red);color:var(--red);}
+.btn-danger:hover{background:rgba(217,79,61,0.12);}
+.btn-sm{padding:5px 12px;font-size:9px;}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* Page */
+.page{max-width:960px;margin:0 auto;padding:40px 20px 80px;}
+.page-title{font-family:var(--display);color:var(--gold);font-size:48px;letter-spacing:0.06em;margin-bottom:8px;line-height:1;}
+.section-label{font-family:var(--mono);font-size:10px;letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--muted);margin:36px 0 16px;display:flex;align-items:center;gap:12px;}
+.section-label::before{content:'';width:24px;height:1px;background:var(--muted);}
+
+/* Tournament tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
+.tile{position:relative;border:1px solid var(--border2);background:var(--card);overflow:hidden;
+  cursor:pointer;transition:border-color .2s;}
+.tile:hover{border-color:var(--border);}
+.tile.tile-static{cursor:default;opacity:0.6;filter:grayscale(25%);}
+.tile.tile-static:hover{border-color:var(--border2);}
+.tile-view-link{display:block;margin-top:10px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.7;}
+.tile-banner{width:100%;height:140px;object-fit:cover;display:block;background:var(--faint);}
+.tile-banner-placeholder{width:100%;height:140px;background:linear-gradient(135deg,#1a1a1a 0%,#222 100%);
+  display:flex;align-items:center;justify-content:center;font-size:48px;}
+.tile-body{padding:16px;}
+.tile-name{font-family:var(--display);font-size:26px;letter-spacing:0.05em;color:var(--text);margin-bottom:10px;line-height:1;}
+.tile-meta{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+.tile-meta-item{font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--muted);
+  display:flex;align-items:center;gap:4px;}
+.tile-meta-item strong{color:var(--text);}
+
+/* Progress bar */
+.progress-wrap{margin-top:4px;}
+.progress-label{font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--muted);
+  margin-bottom:4px;display:flex;justify-content:space-between;}
+.progress-track{height:3px;background:var(--faint);position:relative;}
+.progress-fill{height:100%;background:var(--gold);transition:width .4s;}
+
+/* Closed top-4 */
+.top4{margin-top:8px;}
+.top4-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--faint);}
+.top4-row:last-child{border-bottom:none;}
+.top4-rank{font-family:var(--mono);font-size:10px;width:20px;color:var(--muted);}
+.top4-name{font-size:12px;font-weight:500;}
+.top4-pts{font-family:var(--mono);font-size:10px;color:var(--gold);margin-left:auto;}
+
+/* Status badge */
+.status-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;
+  letter-spacing:0.15em;text-transform:uppercase;padding:3px 8px;}
+.status-active{background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.4);color:#66bb6a;}
+.status-upcoming{background:rgba(33,150,243,0.12);border:1px solid rgba(33,150,243,0.3);color:#64b5f6;}
+.status-closed{background:rgba(217,79,61,0.15);border:1px solid rgba(217,79,61,0.5);color:#e57368;}
+
+/* Admin gear */
+.tile-admin{position:absolute;top:10px;left:10px;}
+.tile-gear{background:rgba(10,10,10,0.8);border:1px solid var(--border2);color:var(--muted);
+  cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+  font-size:13px;transition:color .15s;}
+.tile-gear:hover{color:var(--gold);}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;
+  display:flex;align-items:center;justify-content:center;padding:20px;}
+.modal{background:var(--card);border:1px solid var(--border2);padding:28px;width:100%;max-width:480px;
+  position:relative;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:var(--display);font-size:28px;letter-spacing:0.06em;color:var(--gold);margin-bottom:20px;}
+.modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);
+  cursor:pointer;font-size:18px;line-height:1;}
+.modal-close:hover{color:var(--text);}
+.field{margin-bottom:16px;}
+.field-label{font-family:var(--mono);font-size:9px;letter-spacing:0.15em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:6px;display:block;}
+.input{background:var(--card2);border:1px solid var(--border2);color:var(--text);
+  padding:10px 12px;font-size:13px;font-family:var(--sans);width:100%;outline:none;
+  transition:border-color .15s;}
+.input:focus{border-color:var(--gold);}
+select.input{cursor:pointer;}
+.modal-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
+.modal-status{font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:10px;}
+
+/* Auth */
+.auth-wrap{max-width:380px;margin:80px auto;padding:0 20px;}
+.auth-title{font-family:var(--display);font-size:36px;color:var(--gold);margin-bottom:20px;letter-spacing:.06em;}
+.auth-form{background:var(--card);border:1px solid var(--border2);padding:24px;}
+.auth-err{color:#ef9a9a;font-size:12px;font-family:var(--mono);margin-top:10px;}
+
+/* Empty */
+.empty{color:var(--muted);font-size:13px;padding:24px 0;font-family:var(--mono);}
+
+/* Players list */
+.players-list{display:flex;flex-direction:column;gap:0;margin-top:12px;border:1px solid var(--border2);}
+.player-row{display:flex;align-items:center;gap:12px;padding:10px 14px;
+  border-bottom:1px solid var(--border2);cursor:pointer;transition:background .15s;}
+.player-row:last-child{border-bottom:none;}
+.player-row:hover{background:var(--card2);}
+.player-avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--faint);
+  border:1px solid var(--border2);flex-shrink:0;}
+.player-avatar-ph{width:34px;height:34px;border-radius:50%;background:var(--faint);
+  border:1px solid var(--border2);display:flex;align-items:center;
+  justify-content:center;font-size:15px;flex-shrink:0;}
+.player-name-wrap{flex:1;min-width:0;}
+.player-name{font-size:13px;font-weight:500;color:var(--text);}
+.player-sub{font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:1px;}
+.player-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.player-earnings{font-size:11px;font-family:var(--mono);color:var(--gold);white-space:nowrap;}
+.player-badges-mini{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+/* Pulse dot — wrapper keeps the ripple from clipping */
+.badge-dot-wrap{width:18px;height:18px;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;}
+.badge-dot{width:10px;height:10px;border-radius:50%;display:block;flex-shrink:0;}
+@keyframes pulse-ring{0%{transform:translate(-50%,-50%) scale(1);opacity:.7}70%{transform:translate(-50%,-50%) scale(2.4);opacity:0}100%{transform:translate(-50%,-50%) scale(2.4);opacity:0}}
+.badge-dot-wrap.winner::after{content:'';position:absolute;top:50%;left:50%;
+  width:10px;height:10px;border-radius:50%;background:var(--dot-color,#ffd700);
+  transform:translate(-50%,-50%);animation:pulse-ring 2s ease-out infinite;}
+
+/* Profile modal */
+.profile-avatar-lg{width:80px;height:80px;border-radius:50%;object-fit:cover;border:2px solid var(--border);margin-bottom:14px;}
+.profile-avatar-lg-ph{width:80px;height:80px;border-radius:50%;background:var(--faint);
+  border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:14px;}
+.badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+.badge-chip{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:2px;
+  font-size:11px;font-family:var(--mono);}
+.badge-chip .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+
+/* Light mode */
+body.light{
+  --bg:#f5f2ee; --card:#ffffff; --card2:#eeebe6;
+  --text:#1a1814; --muted:#8a837a; --faint:#e0dbd4;
+  --border:rgba(154,122,53,0.2); --border2:rgba(0,0,0,0.08);
+}
+body.light .nav{background:rgba(245,242,238,0.95);}
+body.light body::before{opacity:0.012;}
+
+/* Hamburger */
+.hamburger{background:none;border:none;cursor:pointer;display:flex;flex-direction:column;
+  gap:4px;padding:6px;color:var(--muted);}
+.hamburger:hover{color:var(--gold);}
+.hamburger span{display:block;width:20px;height:2px;background:currentColor;transition:.2s;}
+
+/* Sidebar */
+.sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s;}
+.sidebar-overlay.open{opacity:1;pointer-events:auto;}
+.sidebar-drawer{position:fixed;top:0;right:0;bottom:0;width:280px;background:var(--card);
+  border-left:1px solid var(--border2);z-index:201;transform:translateX(100%);
+  transition:transform .25s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column;}
+.sidebar-drawer.open{transform:translateX(0);}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-bottom:1px solid var(--border2);}
+.sidebar-brand{font-family:var(--display);letter-spacing:.1em;color:var(--gold);font-size:18px;}
+.sidebar-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;}
+.sidebar-close:hover{color:var(--text);}
+.sidebar-section{padding:18px 20px;border-bottom:1px solid var(--border2);}
+.sidebar-section-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:12px;}
+.sidebar-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.sidebar-row-label{font-size:12px;color:var(--text);}
+
+/* Toggle */
+.toggle-track{width:36px;height:20px;background:var(--faint);border-radius:10px;
+  position:relative;cursor:pointer;transition:background .2s;}
+.toggle-track.on{background:var(--gold);}
+.toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;transition:transform .2s;}
+.toggle-track.on .toggle-thumb{transform:translateX(16px);}
+
+/* Swatches */
+.swatches{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.swatch-btn{width:24px;height:24px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+  transition:transform .15s,border-color .15s;}
+.swatch-btn:hover{transform:scale(1.15);}
+.swatch-btn.active{border-color:var(--text);}
+
+/* Avatar */
+.avatar-wrap{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.avatar-img{width:52px;height:52px;border-radius:50%;object-fit:cover;background:var(--faint);
+  border:2px solid var(--border);}
+.avatar-placeholder{width:52px;height:52px;border-radius:50%;background:var(--faint);
+  border:2px solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:22px;flex-shrink:0;}
+.avatar-actions{display:flex;flex-direction:column;gap:6px;}
+.sidebar-btn{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  padding:5px 10px;background:transparent;border:1px solid var(--border2);color:var(--muted);cursor:pointer;
+  transition:all .15s;}
+.sidebar-btn:hover{border-color:var(--gold);color:var(--gold);}
+.sidebar-btn.danger:hover{border-color:var(--red);color:var(--red);}
+.sidebar-input{background:var(--card2);border:1px solid var(--border2);color:var(--text);
+  padding:8px 10px;font-size:12px;font-family:var(--sans);width:100%;outline:none;
+  transition:border-color .15s;}
+.sidebar-input:focus{border-color:var(--gold);}
+.sidebar-save-btn{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  padding:6px 14px;background:var(--gold);color:#0a0a0a;border:none;cursor:pointer;margin-top:6px;
+  transition:background .15s;}
+.sidebar-save-btn:hover{background:var(--gold2);}
+.sidebar-msg{font-size:11px;font-family:var(--mono);margin-top:6px;}
+.sidebar-signout{width:100%;text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+  text-transform:uppercase;padding:8px 0;background:transparent;border:none;color:var(--muted);
+  cursor:pointer;transition:color .15s;}
+.sidebar-signout:hover{color:var(--red);}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <span class="nav-brand">VERMANI POOL</span>
+  <div class="nav-right" id="nav-right">
+    <span class="nav-user" id="nav-user"></span>
+    <button class="hamburger" id="hamburger-btn" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<aside class="sidebar-drawer" id="sidebar-drawer">
+  <div class="sidebar-head">
+    <span class="sidebar-brand">MENU</span>
+    <button class="sidebar-close" id="sidebar-close">✕</button>
+  </div>
+
+  <!-- Display -->
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Display</div>
+    <div class="sidebar-row">
+      <span class="sidebar-row-label">Dark Mode</span>
+      <div class="toggle-track" id="dark-toggle"><div class="toggle-thumb"></div></div>
+    </div>
+    <div class="sidebar-section-label" style="margin-top:10px">Colour Scheme</div>
+    <div class="swatches" id="scheme-swatches"></div>
+  </div>
+
+  <!-- Account -->
+  <div class="sidebar-section" id="account-section">
+    <div class="sidebar-section-label">Account</div>
+    <div id="account-body">
+      <button class="btn btn-outline btn-sm" id="sidebar-login-btn" style="margin-bottom:10px">Sign In</button>
+    </div>
+  </div>
+
+  <!-- Admin -->
+  <div class="sidebar-section" id="admin-section" style="display:none">
+    <div class="sidebar-section-label">Admin</div>
+    <div id="admin-body"></div>
+  </div>
+</aside>
+
+<div id="root"></div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay" style="display:none">
+  <div class="modal" id="modal">
+    <button class="modal-close" id="modal-close">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL      = 'https://skonplkvlsccjjmiewdv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrb25wbGt2bHNjY2pqbWlld2R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODM3MDUsImV4cCI6MjA5NTY1OTcwNX0.Fe7YCAUAndZd6EVFqHBiFyQrQx4mar0B4FD8E3D_G7U';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const T = {
+  user: null,
+  profile: null,
+  tournaments: [],
+  playerCounts: {},   // tid → count
+  progress: {},       // tid → { filled, total }
+  top4: {},           // tid → [{name, pts}]
+  prizePools: {},     // tid → '$1175'
+};
+
+// ── Data loading ──────────────────────────────────────────────────
+
+async function loadTournaments() {
+  const { data } = await sb.from('tournaments').select('*').order('created_at', { ascending: false });
+  T.tournaments = data || [];
+}
+
+async function loadPlayerCounts() {
+  const { data } = await sb.from('profiles').select('id').eq('is_admin', false);
+  const count = (data || []).length;
+  // Same player pool for now; could be per-tournament in future
+  T.tournaments.forEach(t => { T.playerCounts[t.id] = count; });
+}
+
+async function loadPrizePools() {
+  for (const t of T.tournaments) {
+    const { data } = await sb.from('round_settings')
+      .select('prizes')
+      .eq('round_id', '__prizes__')
+      .eq('tournament_id', t.id)
+      .single();
+    if (!data?.prizes) continue;
+    try {
+      const cfg = JSON.parse(data.prizes);
+      const total = (cfg.entries || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      if (total > 0) T.prizePools[t.id] = `$${total.toLocaleString()}`;
+    } catch(e) {}
+  }
+}
+
+async function loadProgress() {
+  for (const t of T.tournaments) {
+    const { count } = await sb.from('bonus_results')
+      .select('*', { count: 'exact', head: true })
+      .eq('tournament_id', t.id);
+    // Total bonus questions = sum across all rounds for this tournament's rounds_key
+    // We store a simple count; exact total requires knowing the rounds config
+    // For now expose filled count vs a stored total (or just show as fraction of 100%)
+    const total = t.total_bonus_questions || count || 0;
+    T.progress[t.id] = { filled: count || 0, total: Math.max(total, count || 0) };
+  }
+}
+
+async function loadTop4(tid) {
+  if (T.top4[tid]) return;
+
+  // Prefer final_standings on the tournament row (correct tie-breaking order)
+  const t = T.tournaments.find(x => x.id === tid);
+  if (t?.final_standings && Array.isArray(t.final_standings) && t.final_standings.length) {
+    T.top4[tid] = t.final_standings.slice(0, 4);
+    return;
+  }
+
+  // Fall back to rank_snapshot from round_settings
+  const { data } = await sb.from('round_settings')
+    .select('rank_snapshot')
+    .eq('round_id', '__rank_snapshot__')
+    .eq('tournament_id', tid)
+    .single();
+
+  if (!data?.rank_snapshot) return;
+  let snapshot;
+  try { snapshot = JSON.parse(data.rank_snapshot); } catch(e) { return; }
+
+  const { data: profiles } = await sb.from('profiles').select('id,name,nickname').eq('is_admin', false);
+  const nameMap = {};
+  (profiles || []).forEach(p => { nameMap[p.id] = p.nickname || p.name || '?'; });
+
+  const sorted = Object.entries(snapshot)
+    .map(([uid, pts]) => ({ name: nameMap[uid] || '?', pts: Number(pts) }))
+    .sort((a, b) => b.pts - a.pts)
+    .slice(0, 4);
+
+  T.top4[tid] = sorted;
+}
+
+// ── Render ────────────────────────────────────────────────────────
+
+function renderNav() {
+  const user = T.user;
+  const navUser = document.getElementById('nav-user');
+  if (navUser) {
+    navUser.textContent = user ? (T.profile?.nickname || T.profile?.name || user.email) : '';
+  }
+}
+
+function renderPage() {
+  const root = document.getElementById('root');
+  const isAdmin = T.profile?.is_admin;
+
+  const groups = { upcoming: [], active: [], closed: [] };
+  T.tournaments.forEach(t => {
+    (groups[t.status] || groups.active).push(t);
+  });
+
+  const statusLabel = { upcoming: 'Upcoming', active: 'Active', closed: 'Closed' };
+
+  let html = `<div class="page">
+    <div class="page-title">TOURNAMENTS</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:8px">Pick your pool. Make your predictions.</p>
+    ${isAdmin ? `<div style="margin-top:16px"><button class="btn btn-gold" id="add-tournament-btn">＋ Add Tournament</button></div>` : ''}
+  `;
+
+  for (const status of ['active', 'upcoming']) {
+    const list = groups[status];
+    if (!list.length) continue;
+    html += `<div class="section-label">${statusLabel[status]}</div><div class="tiles">`;
+    for (const t of list) html += renderTile(t, isAdmin);
+    html += `</div>`;
+  }
+
+  if (!T.tournaments.length) {
+    html += `<div class="empty">No tournaments yet.</div>`;
+  }
+
+  // Past = closed DB tournaments (clickable) + hardcoded historical (static)
+  const closedDb = groups['closed'] || [];
+  html += `<div class="section-label">Past Tournaments</div><div class="tiles">`;
+  for (const t of closedDb) {
+    html += renderTile(t, isAdmin, true);
+  }
+  html += HISTORICAL_TOURNAMENTS.map(h => renderHistoricalTile(h)).join('');
+  html += `</div>`;
+
+  html += renderPlayersSection();
+
+  html += `</div>`;
+  root.innerHTML = html;
+
+  // Attach player row clicks
+  document.querySelectorAll('.player-row[data-pid]').forEach(row => {
+    row.onclick = () => showPlayerModal(row.dataset.pid);
+  });
+
+  // Attach tile click
+  document.querySelectorAll('.tile[data-tid]').forEach(tile => {
+    tile.addEventListener('click', e => {
+      if (e.target.closest('.tile-gear')) return;
+      const tid = tile.dataset.tid;
+      location.href = `index.html?t=${tid}`;
+    });
+  });
+
+  // Attach gear clicks
+  document.querySelectorAll('.tile-gear').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const tid = btn.dataset.tid;
+      const t = T.tournaments.find(x => x.id === tid);
+      if (t) showEditModal(t);
+    });
+  });
+
+  if (isAdmin) {
+    const addBtn = document.getElementById('add-tournament-btn');
+    if (addBtn) addBtn.onclick = () => showAddModal();
+  }
+}
+
+function renderTile(t, isAdmin, inPast = false) {
+  const count = T.playerCounts[t.id] || 0;
+  const prog  = T.progress[t.id] || { filled: 0, total: 0 };
+  const top4  = T.top4[t.id] || [];
+  const medal = r => ['🥇','🥈','🥉'][r] || `#${r+1}`;
+
+  const banner = t.banner_url
+    ? `<img class="tile-banner" src="${t.banner_url}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    + `<div class="tile-banner-placeholder" style="display:none">⚽</div>`
+    : `<div class="tile-banner-placeholder">⚽</div>`;
+
+  const statusClass = `status-${t.status || 'active'}`;
+  const statusText  = { upcoming:'Upcoming', active:'Active', closed:'Closed' }[t.status] || t.status;
+
+  let bodyContent = '';
+  if (t.status === 'closed' && top4.length) {
+    bodyContent = `<div class="top4">${top4.map((p, i) => `
+      <div class="top4-row">
+        <span class="top4-rank">${medal(i)}</span>
+        <span class="top4-name">${p.name}</span>
+        <span class="top4-pts">${p.pts} pts</span>
+      </div>`).join('')}</div>`;
+  } else if (prog.total > 0) {
+    const pct = Math.round((prog.filled / prog.total) * 100);
+    bodyContent = `<div class="progress-wrap">
+      <div class="progress-label"><span>Results entered</span><span>${prog.filled}/${prog.total}</span></div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }
+
+  return `<div class="tile" data-tid="${t.id}">
+    ${banner}
+    <span class="status-badge ${statusClass}">${statusText}</span>
+    ${isAdmin ? `<div class="tile-admin"><button class="tile-gear" data-tid="${t.id}" title="Edit tournament">⚙</button></div>` : ''}
+    <div class="tile-body">
+      <div class="tile-name">${t.name}</div>
+      <div class="tile-meta">
+        <div class="tile-meta-item">👥 <strong>${count}</strong> players</div>
+        ${(T.prizePools[t.id] || t.prize_pool) ? `<div class="tile-meta-item">💰 <strong>${T.prizePools[t.id] || t.prize_pool}</strong></div>` : ''}
+      </div>
+      ${bodyContent}
+      ${inPast ? `<span class="tile-view-link">View Standings →</span>` : ''}
+    </div>
+  </div>`;
+}
+
+// ── Modals ────────────────────────────────────────────────────────
+
+function openModal(html) {
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').style.display = 'none';
+}
+
+document.getElementById('modal-close').onclick = closeModal;
+document.getElementById('modal-overlay').onclick = e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+};
+
+function showLoginModal(mode = 'login') {
+  if (mode === 'forgot') {
+    openModal(`
+      <div class="modal-title">RESET PASSWORD</div>
+      <p style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-bottom:16px">Enter your email and we'll send a reset link.</p>
+      <div class="field"><label class="field-label">Email</label><input class="input" id="m-email" type="email" placeholder="you@example.com" autofocus></div>
+      <div class="modal-actions">
+        <button class="btn btn-gold" id="m-reset-btn">Send Reset Link</button>
+        <button class="btn btn-outline" id="m-back-btn">← Back</button>
+      </div>
+      <div class="modal-status" id="m-status"></div>
+    `);
+    document.getElementById('m-back-btn').onclick = () => showLoginModal('login');
+    const doReset = async () => {
+      const email = document.getElementById('m-email').value.trim();
+      const status = document.getElementById('m-status');
+      const btn = document.getElementById('m-reset-btn');
+      if (!email) { status.textContent = 'Enter your email.'; status.style.color = '#ef9a9a'; return; }
+      btn.disabled = true; btn.textContent = 'Sending…';
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
+      if (error) { status.textContent = error.message; status.style.color = '#ef9a9a'; btn.disabled = false; btn.textContent = 'Send Reset Link'; }
+      else { status.textContent = '✓ Reset link sent — check your inbox.'; status.style.color = '#66bb6a'; }
+    };
+    document.getElementById('m-reset-btn').onclick = doReset;
+    document.getElementById('m-email').onkeydown = e => { if (e.key === 'Enter') doReset(); };
+    return;
+  }
+
+  openModal(`
+    <div class="modal-title">SIGN IN</div>
+    <div class="field"><label class="field-label">Email</label><input class="input" id="m-email" type="email" placeholder="you@example.com" autofocus></div>
+    <div class="field"><label class="field-label">Password</label><input class="input" id="m-pass" type="password" placeholder="••••••••"></div>
+    <div class="modal-actions"><button class="btn btn-gold" id="m-login-btn">Sign In</button></div>
+    <div class="modal-status" id="m-status"></div>
+    <p style="margin-top:12px;font-size:11px;font-family:var(--mono)">
+      <span id="m-forgot-link" style="color:var(--muted);cursor:pointer;text-decoration:underline">Forgot password?</span>
+    </p>
+  `);
+  const doLogin = async () => {
+    const email = document.getElementById('m-email').value.trim();
+    const pass  = document.getElementById('m-pass').value;
+    const status = document.getElementById('m-status');
+    const btn = document.getElementById('m-login-btn');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    if (error) { status.textContent = error.message; status.style.color = '#ef9a9a'; btn.disabled = false; btn.textContent = 'Sign In'; }
+    else { closeModal(); await loadUserProfile(); renderNav(); renderPage(); }
+  };
+  document.getElementById('m-login-btn').onclick = doLogin;
+  document.getElementById('m-pass').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
+  document.getElementById('m-forgot-link').onclick = () => showLoginModal('forgot');
+}
+
+function showAddModal() {
+  openModal(`
+    <div class="modal-title">ADD TOURNAMENT</div>
+    <div class="field"><label class="field-label">ID (url-safe, e.g. euro2028)</label><input class="input" id="m-id" placeholder="euro2028"></div>
+    <div class="field"><label class="field-label">Name</label><input class="input" id="m-name" placeholder="Euro 2028"></div>
+    <div class="field"><label class="field-label">Status</label>
+      <select class="input" id="m-status-sel"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="closed">Closed</option></select>
+    </div>
+    <div class="field"><label class="field-label">Prize Pool (display text)</label><input class="input" id="m-prize" placeholder="$200"></div>
+    <div class="field"><label class="field-label">Winner Badge Label</label><input class="input" id="m-badge" placeholder="Euro 2028"></div>
+    <div class="field"><label class="field-label">Rounds Key (must match ROUNDS_MAP in index.html)</label><input class="input" id="m-rounds" placeholder="euro2028"></div>
+    <div class="field"><label class="field-label">Banner Image URL (optional)</label><input class="input" id="m-banner" placeholder="https://…"></div>
+    <div class="modal-actions">
+      <button class="btn btn-gold" id="m-save-btn">Create Tournament</button>
+      <button class="btn btn-outline" id="m-cancel-btn">Cancel</button>
+    </div>
+    <div class="modal-status" id="m-msg"></div>
+  `);
+  document.getElementById('m-cancel-btn').onclick = closeModal;
+  document.getElementById('m-save-btn').onclick = async () => {
+    const id     = document.getElementById('m-id').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
+    const name   = document.getElementById('m-name').value.trim();
+    const status = document.getElementById('m-status-sel').value;
+    const prize  = document.getElementById('m-prize').value.trim();
+    const badge  = document.getElementById('m-badge').value.trim();
+    const rounds = document.getElementById('m-rounds').value.trim();
+    const banner = document.getElementById('m-banner').value.trim();
+    const msg    = document.getElementById('m-msg');
+    if (!id || !name || !rounds) { msg.textContent = 'ID, Name and Rounds Key are required.'; msg.style.color = '#ef9a9a'; return; }
+    const { error } = await sb.from('tournaments').insert({
+      id, name, status, prize_pool: prize || null, badge_label: badge || name,
+      rounds_key: rounds, banner_url: banner || null, created_at: new Date().toISOString()
+    });
+    if (error) { msg.textContent = error.message; msg.style.color = '#ef9a9a'; }
+    else {
+      msg.textContent = '✓ Created!'; msg.style.color = '#66bb6a';
+      await loadTournaments(); await loadPlayerCounts(); await loadProgress();
+      renderPage();
+      setTimeout(closeModal, 800);
+    }
+  };
+}
+
+function showEditModal(t) {
+  openModal(`
+    <div class="modal-title">EDIT TOURNAMENT</div>
+    <p style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:18px;letter-spacing:.08em">${t.id}</p>
+    <div class="field"><label class="field-label">Name</label><input class="input" id="m-name" value="${t.name}"></div>
+    <div class="field"><label class="field-label">Status</label>
+      <select class="input" id="m-status-sel">
+        <option value="upcoming" ${t.status==='upcoming'?'selected':''}>Upcoming</option>
+        <option value="active"   ${t.status==='active'?'selected':''}>Active</option>
+        <option value="closed"   ${t.status==='closed'?'selected':''}>Closed</option>
+      </select>
+    </div>
+    <div class="field"><label class="field-label">Prize Pool</label><input class="input" id="m-prize" value="${t.prize_pool||''}"></div>
+    <div class="field"><label class="field-label">Winner Badge Label</label><input class="input" id="m-badge" value="${t.badge_label||''}"></div>
+    <div class="field"><label class="field-label">Banner Image URL</label><input class="input" id="m-banner" value="${t.banner_url||''}"></div>
+
+    <div style="border-top:1px solid var(--faint);margin:20px 0;padding-top:16px">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;margin-bottom:12px">Award Winner Badge</div>
+      <div id="winner-section">Loading players…</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-gold" id="m-save-btn">Save Changes</button>
+      <button class="btn btn-outline" id="m-cancel-btn">Cancel</button>
+    </div>
+    <div class="modal-status" id="m-msg"></div>
+  `);
+  document.getElementById('m-cancel-btn').onclick = closeModal;
+
+  // Load players for badge award
+  sb.from('profiles').select('id,name,nickname,achievements').eq('is_admin', false).then(({ data }) => {
+    const players = data || [];
+    const winnerSection = document.getElementById('winner-section');
+    if (!winnerSection) return;
+    winnerSection.innerHTML = `
+      <select class="input" id="m-winner-sel" style="margin-bottom:8px">
+        <option value="">— Select winner —</option>
+        ${players.map(p => `<option value="${p.id}">${p.nickname || p.name}</option>`).join('')}
+      </select>
+      <button class="btn btn-outline btn-sm" id="m-award-btn">Award 🏆 Badge</button>
+    `;
+    document.getElementById('m-award-btn').onclick = async () => {
+      const uid = document.getElementById('m-winner-sel').value;
+      const msg = document.getElementById('m-msg');
+      if (!uid) { msg.textContent = 'Select a player first.'; msg.style.color = '#ef9a9a'; return; }
+      const player = players.find(p => p.id === uid);
+      const ach = Array.isArray(player?.achievements) ? [...player.achievements] : [];
+      const badgeLabel = document.getElementById('m-badge').value.trim() || t.badge_label || t.name;
+      if (ach.find(a => a.type === 'tournament_winner' && a.tid === t.id)) {
+        msg.textContent = 'Already awarded to this player.'; msg.style.color = '#ef9a9a'; return;
+      }
+      ach.push({ type: 'tournament_winner', label: badgeLabel, tid: t.id });
+      const { error } = await sb.from('profiles').update({ achievements: ach }).eq('id', uid);
+      if (error) { msg.textContent = error.message; msg.style.color = '#ef9a9a'; }
+      else { msg.textContent = `✓ 🏆 ${badgeLabel} badge awarded to ${player.nickname || player.name}!`; msg.style.color = '#66bb6a'; }
+    };
+  });
+
+  document.getElementById('m-save-btn').onclick = async () => {
+    const name   = document.getElementById('m-name').value.trim();
+    const status = document.getElementById('m-status-sel').value;
+    const prize  = document.getElementById('m-prize').value.trim();
+    const badge  = document.getElementById('m-badge').value.trim();
+    const banner = document.getElementById('m-banner').value.trim();
+    const msg    = document.getElementById('m-msg');
+    const { error } = await sb.from('tournaments').update({
+      name, status, prize_pool: prize || null, badge_label: badge || null, banner_url: banner || null
+    }).eq('id', t.id);
+    if (error) { msg.textContent = error.message; msg.style.color = '#ef9a9a'; }
+    else {
+      msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a';
+      await loadTournaments(); await loadProgress();
+      if (status === 'closed') { delete T.top4[t.id]; await loadTop4(t.id); }
+      renderPage();
+      setTimeout(closeModal, 800);
+    }
+  };
+}
+
+// ── Auth ──────────────────────────────────────────────────────────
+
+async function loadUserProfile() {
+  const { data: { session } } = await sb.auth.getSession();
+  T.user = session?.user || null;
+  if (T.user) {
+    const { data: profile } = await sb.from('profiles').select('*').eq('id', T.user.id).single();
+    if (T.user.email === 'admin@vermanipool.internal') {
+      T.profile = { ...(profile || {}), is_admin: true, name: 'Admin', nickname: 'Admin' };
+    } else {
+      T.profile = profile;
+    }
+  } else {
+    T.profile = null;
+  }
+}
+
+// ── Players ───────────────────────────────────────────────────────
+
+T.players = [];
+
+async function loadPlayers() {
+  const { data } = await sb.from('profiles').select('id,name,nickname,avatar_url,achievements,lifetime_earnings,tournaments_played').eq('is_admin', false);
+  T.players = data || [];
+}
+
+const HISTORICAL_TOURNAMENTS = [
+  {
+    id: 'ipl2025', name: 'IPL 2025', emoji: '🏏',
+    players: 15, prize: '$605',
+    placements: [
+      { name: 'Argentina Hater' },
+      { name: 'AVee' },
+      { name: 'Sumit B' },
+      { name: 'Infiniti' },
+    ]
+  },
+  {
+    id: 'ipl2024', name: 'IPL 2024', emoji: '🏏',
+    players: 13, prize: '$520',
+    placements: [
+      { name: 'Infiniti' },
+      { name: 'Rijuta' },
+      { name: 'Renu' },
+      { name: 'Argentina Hater' },
+    ]
+  },
+  {
+    id: 'euro2024', name: 'EURO 2024', emoji: '⚽',
+    players: 18, prize: '$810',
+    placements: [
+      { name: 'Infiniti' },
+      { name: 'Arjun' },
+      { name: 'Gurpreet' },
+      { name: 'Sami_Anita' },
+    ]
+  },
+  {
+    id: 'wc2022', name: 'FIFA World Cup 2022', emoji: '⚽',
+    players: 13, prize: '$550',
+    placements: [
+      { name: 'Nikhil' },
+      { name: 'Rocky' },
+      { name: 'Argentina Hater' },
+      { name: 'Ishan' },
+    ]
+  },
+];
+
+function renderHistoricalTile(h) {
+  const medal = r => ['🥇','🥈','🥉'][r] || `#${r+1}`;
+  const top4Html = `<div class="top4">${h.placements.map((p, i) => `
+    <div class="top4-row">
+      <span class="top4-rank">${medal(i)}</span>
+      <span class="top4-name">${p.name}</span>
+    </div>`).join('')}</div>`;
+
+  return `<div class="tile tile-static">
+    <div class="tile-banner-placeholder">${h.emoji}</div>
+    <span class="status-badge status-closed">Closed</span>
+    <div class="tile-body">
+      <div class="tile-name">${h.name}</div>
+      <div class="tile-meta">
+        <div class="tile-meta-item">👥 <strong>${h.players}</strong> players</div>
+        <div class="tile-meta-item">💰 <strong>${h.prize}</strong></div>
+      </div>
+      ${top4Html}
+    </div>
+  </div>`;
+}
+
+const TOURNAMENT_COLORS = {
+  wc2026:   '#e8d5a3', // gold
+  wc2022:   '#ef5350', // red
+  euro2024: '#42a5f5', // blue
+  ipl2024:  '#ab47bc', // purple
+  ipl2025:  '#ff8f00', // amber
+  euro2028: '#26c6da', // cyan
+  wc2030:   '#66bb6a', // green
+};
+function tournamentColor(tid) {
+  if (tid && TOURNAMENT_COLORS[tid]) return TOURNAMENT_COLORS[tid];
+  // hash fallback for unknown tids
+  let h = 0;
+  for (let i = 0; i < (tid||'').length; i++) h = (h * 31 + tid.charCodeAt(i)) & 0xffff;
+  return `hsl(${h % 360},65%,62%)`;
+}
+
+const BADGE_STYLES = {
+  tournament_winner: { color: a => tournamentColor(a.tid), bg: a => `${tournamentColor(a.tid)}1f`, label: a => `🏆 ${a.label}` },
+  perfectRound:      { color:'#ff7043', bg:'rgba(255,112,67,0.12)', label: () => '⚡ Perfect Round' },
+  oracle:            { color:'#ce93d8', bg:'rgba(206,147,216,0.12)', label: () => '🔮 Oracle' },
+  sharpshooter:      { color:'#42a5f5', bg:'rgba(66,165,245,0.12)', label: () => '🎯 Sharpshooter' },
+  highRoller:        { color:'#66bb6a', bg:'rgba(102,187,106,0.12)', label: () => '💰 High Roller' },
+  centuryClub:       { color:'#FFD700', bg:'rgba(255,215,0,0.12)', label: () => '💯 Century Club' },
+  bonusHunter:       { color:'#ec407a', bg:'rgba(236,64,122,0.12)', label: () => '🎁 Bonus Hunter' },
+  scoreMaster:       { color:'#26c6da', bg:'rgba(38,198,218,0.12)', label: () => '🔢 Score Master' },
+  wagerKing:         { color:'#ab47bc', bg:'rgba(171,71,188,0.12)', label: () => '👑 Wager King' },
+  contrarian:        { color:'#ff8f00', bg:'rgba(255,143,0,0.12)', label: () => '🦅 Contrarian' },
+  comebackKid:       { color:'#00e5ff', bg:'rgba(0,229,255,0.12)', label: () => '🚀 Comeback Kid' },
+};
+
+function renderPlayersSection() {
+  const players = T.players;
+  if (!players.length) return '';
+
+  const rows = players.map(p => {
+    const name = p.nickname || p.name || '?';
+    const achs = (Array.isArray(p.achievements) ? p.achievements : []).filter(a => a.type === 'tournament_winner');
+    const dots = achs.map(a => {
+      const st = BADGE_STYLES[a.type] || { color: () => tournamentColor(a.tid), label: () => `🏆 ${a.label||a.tid}` };
+      const color = typeof st.color === 'function' ? st.color(a) : st.color;
+      const label = typeof st.label === 'function' ? st.label(a) : a.type;
+      return `<span class="badge-dot-wrap winner" style="--dot-color:${color}" title="${label}"><span class="badge-dot" style="background:${color}"></span></span>`;
+    }).join('');
+    const avatar = p.avatar_url
+      ? `<img class="player-avatar" src="${p.avatar_url}" alt="">`
+      : `<div class="player-avatar-ph">👤</div>`;
+    const played = p.tournaments_played || 1;
+    return `<div class="player-row" data-pid="${p.id}">
+      ${avatar}
+      <div class="player-name-wrap">
+        <div class="player-name">${name}</div>
+        <div class="player-sub">${played} tournament${played !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="player-right">
+        <div class="player-badges-mini">${dots}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="section-label">Players</div>
+    <div class="players-list">${rows}</div>`;
+}
+
+function showPlayerModal(pid) {
+  const p = T.players.find(x => x.id === pid);
+  if (!p) return;
+  const name = p.nickname || p.name || '?';
+  const achs = (Array.isArray(p.achievements) ? p.achievements : []).filter(a => a.type === 'tournament_winner');
+  const avatar = p.avatar_url
+    ? `<img class="profile-avatar-lg" src="${p.avatar_url}" alt="">`
+    : `<div class="profile-avatar-lg-ph">👤</div>`;
+
+  const badgesHtml = achs.length
+    ? `<div class="badge-row">${achs.map(a => {
+        const st = BADGE_STYLES[a.type] || { color: () => tournamentColor(a.tid), label: () => `🏆 ${a.label||a.tid}` };
+        const color = typeof st.color === 'function' ? st.color(a) : st.color;
+        const bg = typeof st.bg === 'function' ? st.bg(a) : (st.bg || `${color}1f`);
+        const label = typeof st.label === 'function' ? st.label(a) : a.type;
+        return `<div class="badge-chip" style="background:${bg};border:1px solid ${color}40;color:${color}">
+          <span class="badge-dot-wrap winner" style="--dot-color:${color}"><span class="badge-dot" style="background:${color}"></span></span>
+          ${label}
+        </div>`;
+      }).join('')}</div>`
+    : `<p style="color:var(--muted);font-size:12px;font-family:var(--mono);margin-top:8px">No badges yet.</p>`;
+
+  const earnings = p.lifetime_earnings || 0;
+  const played = p.tournaments_played || 1;
+  const statsHtml = `<div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px">
+    <div style="text-align:center">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Earnings</div>
+      <div style="font-size:18px;font-family:var(--mono);color:var(--gold);font-weight:600">$${earnings.toLocaleString()}</div>
+    </div>
+    <div style="width:1px;background:var(--border2)"></div>
+    <div style="text-align:center">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Tournaments</div>
+      <div style="font-size:18px;font-family:var(--mono);color:var(--text);font-weight:600">${played}</div>
+    </div>
+  </div>`;
+
+  const adminEdit = T.profile?.is_admin ? `
+    <div style="border-top:1px solid var(--border2);margin-top:16px;padding-top:14px">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Admin Edit</div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="field" style="flex:1;margin:0">
+          <label class="field-label">Lifetime Earnings ($)</label>
+          <input class="input" id="pm-earnings" type="number" value="${earnings}" step="0.5">
+        </div>
+        <div class="field" style="flex:1;margin:0">
+          <label class="field-label">Tournaments Played</label>
+          <input class="input" id="pm-played" type="number" value="${played}" min="1">
+        </div>
+        <button class="btn btn-gold" id="pm-save-btn" style="flex-shrink:0;margin-bottom:0">Save</button>
+      </div>
+      <div class="modal-status" id="pm-status" style="margin-top:6px"></div>
+    </div>` : '';
+
+  openModal(`
+    <div style="text-align:center">${avatar}</div>
+    <div class="modal-title" style="text-align:center;margin-bottom:4px">${name}</div>
+    ${p.name && p.nickname && p.name !== p.nickname ? `<p style="color:var(--muted);font-size:11px;font-family:var(--mono);text-align:center;margin-bottom:12px">${p.name}</p>` : '<div style="margin-bottom:12px"></div>'}
+    ${statsHtml}
+    <div style="font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Badges</div>
+    ${badgesHtml}
+    ${adminEdit}
+  `);
+
+  if (T.profile?.is_admin) {
+    document.getElementById('pm-save-btn').onclick = async () => {
+      const newEarnings = parseFloat(document.getElementById('pm-earnings').value) || 0;
+      const newPlayed = parseInt(document.getElementById('pm-played').value) || 1;
+      const st = document.getElementById('pm-status');
+      st.textContent = 'Saving...';
+      const { error } = await sb.from('profiles').update({
+        lifetime_earnings: newEarnings,
+        tournaments_played: newPlayed
+      }).eq('id', pid);
+      if (error) { st.textContent = 'Error: ' + error.message; return; }
+      p.lifetime_earnings = newEarnings;
+      p.tournaments_played = newPlayed;
+      st.style.color = 'var(--green)';
+      st.textContent = 'Saved.';
+      renderPage();
+    };
+  }
+}
+
+// ── Colour schemes (mirrors index.html) ──────────────────────────
+const COLOR_SCHEMES = {
+  gold:    { label:'Gold',    swatch:'#e8d5a3',
+    dark:  { accent:'#e8d5a3', accent2:'#c4a96a', border:'rgba(232,213,163,0.14)' },
+    light: { accent:'#9a7a35', accent2:'#7a5f25', border:'rgba(154,122,53,0.2)'   } },
+  crimson: { label:'Crimson', swatch:'#e07878',
+    dark:  { accent:'#e8a3a3', accent2:'#c44444', border:'rgba(220,80,80,0.16)'   },
+    light: { accent:'#b83228', accent2:'#8c2020', border:'rgba(184,50,40,0.2)'    } },
+  ocean:   { label:'Ocean',   swatch:'#5bbcda',
+    dark:  { accent:'#7ecfe3', accent2:'#3da8c4', border:'rgba(126,200,227,0.16)' },
+    light: { accent:'#1a7a9a', accent2:'#145f78', border:'rgba(26,122,154,0.2)'   } },
+  forest:  { label:'Forest',  swatch:'#7bbf45',
+    dark:  { accent:'#96cc5e', accent2:'#5a9e22', border:'rgba(139,195,74,0.16)'  },
+    light: { accent:'#4a8020', accent2:'#376018', border:'rgba(74,128,32,0.2)'    } },
+  violet:  { label:'Violet',  swatch:'#b87ee8',
+    dark:  { accent:'#c9a0e8', accent2:'#9a6ab5', border:'rgba(200,160,230,0.16)' },
+    light: { accent:'#7b3fa8', accent2:'#5e2f80', border:'rgba(123,63,168,0.2)'   } },
+  sunset:  { label:'Sunset',  swatch:'#f0a05a',
+    dark:  { accent:'#f0b87a', accent2:'#d4883a', border:'rgba(240,184,122,0.16)' },
+    light: { accent:'#b86820', accent2:'#8c4e18', border:'rgba(184,104,32,0.2)'   } },
+};
+
+let T_dark = true;
+let T_scheme = 'gold';
+
+function applyColorScheme(id) {
+  T_scheme = id;
+  const sc = COLOR_SCHEMES[id] || COLOR_SCHEMES.gold;
+  const vars = T_dark ? sc.dark : sc.light;
+  const r = document.documentElement.style;
+  r.setProperty('--gold', vars.accent);
+  r.setProperty('--gold2', vars.accent2);
+  r.setProperty('--border', vars.border);
+  localStorage.setItem('wc26:colorScheme', id);
+  document.querySelectorAll('.swatch-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.scheme === id);
+  });
+}
+
+function applyDarkMode(dark) {
+  T_dark = dark;
+  document.body.classList.toggle('light', !dark);
+  const toggle = document.getElementById('dark-toggle');
+  if (toggle) toggle.classList.toggle('on', dark);
+  localStorage.setItem('wc26:dark', dark ? '1' : '0');
+  applyColorScheme(T_scheme);
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────
+
+function openSidebar() {
+  document.getElementById('sidebar-overlay').classList.add('open');
+  document.getElementById('sidebar-drawer').classList.add('open');
+  renderAccountSection();
+  renderAdminSection();
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar-overlay').classList.remove('open');
+  document.getElementById('sidebar-drawer').classList.remove('open');
+}
+
+function renderSchemeSwatches() {
+  const wrap = document.getElementById('scheme-swatches');
+  if (!wrap) return;
+  wrap.innerHTML = Object.entries(COLOR_SCHEMES).map(([id, sc]) =>
+    `<button class="swatch-btn${T_scheme===id?' active':''}" data-scheme="${id}"
+      title="${sc.label}" style="background:${sc.swatch}"></button>`
+  ).join('');
+  wrap.querySelectorAll('.swatch-btn').forEach(btn => {
+    btn.onclick = () => applyColorScheme(btn.dataset.scheme);
+  });
+}
+
+function renderAccountSection() {
+  const body = document.getElementById('account-body');
+  if (!body) return;
+  const user = T.user;
+  const profile = T.profile;
+
+  if (!user) {
+    body.innerHTML = `<button class="btn btn-gold btn-sm" id="sidebar-login-btn2">Sign In</button>`;
+    document.getElementById('sidebar-login-btn2').onclick = () => { closeSidebar(); showLoginModal(); };
+    return;
+  }
+
+  const avatarUrl = profile?.avatar_url;
+  const avatarEl = avatarUrl
+    ? `<img class="avatar-img" src="${avatarUrl}" id="sb-avatar-img">`
+    : `<div class="avatar-placeholder" id="sb-avatar-img">👤</div>`;
+
+  body.innerHTML = `
+    <div class="avatar-wrap">
+      ${avatarEl}
+      <div class="avatar-actions">
+        <label class="sidebar-btn" style="cursor:pointer">Upload Photo<input type="file" accept="image/*" style="display:none" id="sb-avatar-file"></label>
+        ${avatarUrl ? `<button class="sidebar-btn danger" id="sb-remove-avatar">Remove</button>` : ''}
+      </div>
+    </div>
+    <div style="margin-bottom:8px">
+      <div class="sidebar-section-label" style="margin-bottom:4px">Nickname</div>
+      <input class="sidebar-input" id="sb-nickname" value="${(profile?.nickname || '').replace(/"/g,'&quot;')}" placeholder="Your display name">
+      <button class="sidebar-save-btn" id="sb-save-nick">Save</button>
+      <div class="sidebar-msg" id="sb-nick-msg"></div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:10px">${user.email}</div>
+    <button class="sidebar-signout" id="sb-signout">Sign Out →</button>
+  `;
+
+  document.getElementById('sb-avatar-file').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !user) return;
+    const ext = file.name.split('.').pop();
+    const path = `avatars/${user.id}.${ext}`;
+    const { error: upErr } = await sb.storage.from('avatars').upload(path, file, { upsert: true });
+    if (upErr) { alert('Upload failed: ' + upErr.message); return; }
+    const { data: { publicUrl } } = sb.storage.from('avatars').getPublicUrl(path);
+    const { error } = await sb.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+    if (!error) { T.profile = { ...T.profile, avatar_url: publicUrl }; renderAccountSection(); }
+  };
+
+  const removeBtn = document.getElementById('sb-remove-avatar');
+  if (removeBtn) {
+    removeBtn.onclick = async () => {
+      const { error } = await sb.from('profiles').update({ avatar_url: null }).eq('id', user.id);
+      if (!error) { T.profile = { ...T.profile, avatar_url: null }; renderAccountSection(); }
+    };
+  }
+
+  document.getElementById('sb-save-nick').onclick = async () => {
+    const val = document.getElementById('sb-nickname').value.trim();
+    const msg = document.getElementById('sb-nick-msg');
+    if (!val) { msg.textContent = 'Enter a nickname.'; msg.style.color = '#ef9a9a'; return; }
+    const { error } = await sb.from('profiles').update({ nickname: val }).eq('id', user.id);
+    if (error) { msg.textContent = error.message; msg.style.color = '#ef9a9a'; }
+    else {
+      msg.textContent = '✓ Saved'; msg.style.color = '#66bb6a';
+      T.profile = { ...T.profile, nickname: val };
+      renderNav();
+    }
+  };
+
+  document.getElementById('sb-signout').onclick = async () => {
+    await sb.auth.signOut(); closeSidebar(); location.reload();
+  };
+}
+
+function renderAdminSection() {
+  const section = document.getElementById('admin-section');
+  const body = document.getElementById('admin-body');
+  if (!section || !body) return;
+  const isAdmin = T.profile?.is_admin;
+  const user = T.user;
+
+  if (isAdmin) {
+    section.style.display = 'block';
+    body.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:#66bb6a">✓ Signed in as Admin</div>`;
+    return;
+  }
+
+  if (!user) {
+    section.style.display = 'block';
+    body.innerHTML = `<button class="btn btn-outline btn-sm" id="sb-admin-login-btn">Admin Sign In</button>`;
+    document.getElementById('sb-admin-login-btn').onclick = () => { closeSidebar(); showAdminLoginModal(); };
+    return;
+  }
+
+  // Regular user logged in — still show admin sign-in option
+  section.style.display = 'block';
+  body.innerHTML = `<button class="sidebar-btn" id="sb-admin-login-btn">Sign In as Admin</button>`;
+  document.getElementById('sb-admin-login-btn').onclick = () => { closeSidebar(); showAdminLoginModal(); };
+}
+
+function showAdminLoginModal() {
+  openModal(`
+    <div class="modal-title">ADMIN ACCESS</div>
+    <div class="field"><label class="field-label">Admin PIN</label><input class="input" id="m-pin" type="password" placeholder="Enter PIN" autofocus></div>
+    <div class="modal-actions"><button class="btn btn-gold" id="m-login-btn">Access Admin</button><button class="btn btn-outline" id="m-cancel-btn">Cancel</button></div>
+    <div class="modal-status" id="m-status"></div>
+  `);
+  document.getElementById('m-cancel-btn').onclick = closeModal;
+  const doPin = async () => {
+    const pin    = document.getElementById('m-pin').value.trim();
+    const status = document.getElementById('m-status');
+    const btn    = document.getElementById('m-login-btn');
+    if (!pin) { status.textContent = 'Enter the admin PIN.'; status.style.color = '#ef9a9a'; return; }
+    btn.disabled = true; btn.textContent = 'Verifying…';
+    // Step 1 — sign in with internal admin account
+    const { data, error } = await sb.auth.signInWithPassword({
+      email: 'admin@vermanipool.internal', password: 'dw8SxQCWcZLbEER'
+    });
+    if (error) {
+      status.textContent = 'Admin sign-in failed — contact support.'; status.style.color = '#ef9a9a';
+      btn.disabled = false; btn.textContent = 'Access Admin'; return;
+    }
+    // Step 2 — check PIN from app_config
+    const { data: cfg } = await sb.from('app_config').select('value').eq('key', 'admin_pin').single();
+    const correctPin = cfg?.value || 'admin2026';
+    if (pin !== correctPin) {
+      await sb.auth.signOut();
+      status.textContent = 'Wrong PIN.'; status.style.color = '#ef9a9a';
+      btn.disabled = false; btn.textContent = 'Access Admin'; return;
+    }
+    // Step 3 — PIN correct
+    T.user    = data.user;
+    T.profile = { is_admin: true, name: 'Admin', nickname: 'Admin' };
+    await loadPlayers();
+    closeModal(); renderNav(); renderPage();
+  };
+  document.getElementById('m-login-btn').onclick = doPin;
+  document.getElementById('m-pin').onkeydown = e => { if (e.key === 'Enter') doPin(); };
+}
+
+function initSidebar() {
+  // Read persisted settings
+  const savedDark = localStorage.getItem('wc26:dark');
+  T_dark = savedDark === null ? true : savedDark === '1';
+  T_scheme = localStorage.getItem('wc26:colorScheme') || 'gold';
+  applyDarkMode(T_dark);
+  renderSchemeSwatches();
+
+  document.getElementById('hamburger-btn').onclick = openSidebar;
+  document.getElementById('sidebar-close').onclick = closeSidebar;
+  document.getElementById('sidebar-overlay').onclick = closeSidebar;
+
+  const darkToggle = document.getElementById('dark-toggle');
+  darkToggle.classList.toggle('on', T_dark);
+  darkToggle.onclick = () => applyDarkMode(!T_dark);
+
+  const loginBtn = document.getElementById('sidebar-login-btn');
+  if (loginBtn) loginBtn.onclick = () => { closeSidebar(); showLoginModal(); };
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+
+async function init() {
+  initSidebar();
+  await loadUserProfile();
+  await loadTournaments();
+  await Promise.all([loadPlayerCounts(), loadProgress(), loadPrizePools(), loadPlayers()]);
+
+  // Pre-load top4 for closed tournaments
+  await Promise.all(T.tournaments.filter(t => t.status === 'closed').map(t => loadTop4(t.id)));
+
+  renderNav();
+  renderPage();
+
+  sb.auth.onAuthStateChange(async (event) => {
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+      await loadUserProfile();
+      renderNav();
+      renderPage();
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>
