@@ -42,6 +42,8 @@ a{color:var(--gold);text-decoration:none;}
   font-family:var(--mono);letter-spacing:0.12em;text-transform:uppercase;}
 .nav-tab:hover{color:var(--text);}
 .nav-tab.active{color:var(--gold);border-bottom:1px solid var(--gold);}
+.nav-tabs{display:flex;align-items:center;flex:1;overflow-x:auto;scrollbar-width:none;}
+.nav-tabs::-webkit-scrollbar{display:none;}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .nav-user{font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:0.08em;}
 .nav-signout{background:transparent;border:1px solid var(--faint);color:var(--muted);
@@ -65,7 +67,7 @@ a{color:var(--gold);text-decoration:none;}
 }
 
 /* ── Cards ───────────────────────────────────────────────────── */
-.card{background:var(--card);border:1px solid var(--border2);padding:20px;margin-bottom:16px;}
+.card{background:var(--card);border:1px solid var(--border2);padding:20px;margin-bottom:16px;box-sizing:border-box;word-break:break-word;}
 .card-title{font-family:var(--mono);font-size:10px;font-weight:500;color:var(--gold);
   margin-bottom:16px;letter-spacing:0.2em;text-transform:uppercase;
   display:flex;align-items:center;gap:12px;}
@@ -414,14 +416,15 @@ body.light-mode .modal-stat{background:rgba(0,0,0,0.03);}
 /* ── Responsive ──────────────────────────────────────────────── */
 /* ── Mobile nav: keep tabs scrollable, tighten spacing ── */
 @media(max-width:768px){
-  .nav-right .nav-user{display:none;}
   .nav{padding:0 8px;}
-  .nav-brand{font-size:17px;margin-right:8px;}
-  .nav-tab{padding:6px 10px;font-size:10px;}
+  .nav-brand{font-size:17px;margin-right:6px;flex-shrink:0;}
+  .nav-right{display:none;}
+  .nav-tabs{flex:1;}
+  .nav-tab{flex:1;padding:6px 4px;font-size:10px;text-align:center;}
 }
 
 @media(max-width:600px){
-  .page{padding:16px 12px 60px;}
+  .page{padding:16px 12px 60px;overflow-x:hidden;}
   .lb-bar-wrap{display:none;}
   .match-row{gap:5px;}
   .stat-grid{grid-template-columns:1fr 1fr;}
@@ -2408,7 +2411,7 @@ function renderShell(content) {
         <span></span><span></span><span></span>
       </button>
       <span class="nav-brand">⚽ WC26</span>
-      ${tabs.map(t => `<button class="nav-tab ${S.page===t.id?'active':''}" data-page="${t.id}">${t.label}</button>`).join('')}
+      <div class="nav-tabs">${tabs.map(t => `<button class="nav-tab ${S.page===t.id?'active':''}" data-page="${t.id}">${t.label}</button>`).join('')}</div>
       <div class="nav-right">
         <span class="nav-user">${dispName}</span>
         <button class="nav-signout" id="signout-btn">Sign out</button>
