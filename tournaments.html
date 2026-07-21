@@ -81,6 +81,7 @@ body::before{content:'';position:fixed;inset:0;
 .top4-rank{font-family:var(--mono);font-size:10px;width:20px;color:var(--muted);}
 .top4-name{font-size:12px;font-weight:500;}
 .top4-pts{font-family:var(--mono);font-size:10px;color:var(--gold);margin-left:auto;}
+.top4-prize{font-family:var(--mono);font-size:10px;color:#81c784;margin-left:auto;}
 
 /* Status badge */
 .status-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:9px;
@@ -727,45 +728,50 @@ async function loadPlayers() {
   T.players = data || [];
 }
 
+// Per-placement prizes for closed DB tournaments
+const TOURNAMENT_PRIZES = {
+  wc2026: ['$500', '$300', '$200', '$100'],
+};
+
 const HISTORICAL_TOURNAMENTS = [
   {
     id: 'ipl2025', name: 'IPL 2025', emoji: '🏏',
     players: 15, prize: '$605',
     placements: [
-      { name: 'Argentina Hater' },
-      { name: 'AVee' },
-      { name: 'Sumit B' },
-      { name: 'Infiniti' },
+      { name: 'Argentina Hater', pts: 98 },
+      { name: 'AVee',            pts: 94 },
+      { name: 'Sumit B',         pts: 84 },
+      { name: 'Infiniti',        pts: 83 },
     ]
   },
   {
     id: 'ipl2024', name: 'IPL 2024', emoji: '🏏',
     players: 13, prize: '$520',
     placements: [
-      { name: 'Infiniti' },
-      { name: 'Rijuta' },
-      { name: 'Renu' },
-      { name: 'Argentina Hater' },
+      { name: 'Infiniti',        pts: 79 },
+      { name: 'Rijuta',          pts: 78 },
+      { name: 'Renu',            pts: 76 },
+      { name: 'Argentina Hater', pts: 75 },
     ]
   },
   {
     id: 'euro2024', name: 'EURO 2024', emoji: '⚽',
     players: 18, prize: '$810',
     placements: [
-      { name: 'Infiniti' },
-      { name: 'Arjun' },
-      { name: 'Gurpreet' },
-      { name: 'Sami_Anita' },
+      { name: 'Infiniti',        pts: 175 },
+      { name: 'Arjun',           pts: 156 },
+      { name: 'Gurpreet',        pts: 154 },
+      { name: 'Sami_Anita',      pts: 148 },
     ]
   },
   {
     id: 'wc2022', name: 'FIFA World Cup 2022', emoji: '⚽',
     players: 13, prize: '$550',
     placements: [
-      { name: 'Nikhil' },
-      { name: 'Rocky' },
-      { name: 'Argentina Hater' },
-      { name: 'Ishan' },
+      { name: 'Nikhil',          pts: 62 },
+      { name: 'Rocky',           pts: 56 },
+      { name: 'Argentina Hater', pts: 49 },
+      { name: 'Ishan',           pts: 45 },
     ]
   },
 ];
@@ -776,6 +782,7 @@ function renderHistoricalTile(h) {
     <div class="top4-row">
       <span class="top4-rank">${medal(i)}</span>
       <span class="top4-name">${p.name}</span>
+      ${p.pts ? `<span class="top4-pts">${p.pts} pts</span>` : ''}
     </div>`).join('')}</div>`;
 
   return `<div class="tile tile-static">
@@ -1020,8 +1027,13 @@ function renderAccountSection() {
   const profile = T.profile;
 
   if (!user) {
-    body.innerHTML = `<button class="btn btn-gold btn-sm" id="sidebar-login-btn2">Sign In</button>`;
+    body.innerHTML = `
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-gold btn-sm" id="sidebar-login-btn2" style="flex:1">Sign In</button>
+        <button class="btn btn-outline btn-sm" id="sidebar-register-btn" style="flex:1">Register</button>
+      </div>`;
     document.getElementById('sidebar-login-btn2').onclick = () => { closeSidebar(); showLoginModal(); };
+    document.getElementById('sidebar-register-btn').onclick = () => { closeSidebar(); showLoginModal('register'); };
     return;
   }
 
