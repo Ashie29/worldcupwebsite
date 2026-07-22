@@ -1192,7 +1192,11 @@ function renderAdminSection() {
 
   if (isAdmin) {
     section.style.display = 'block';
-    body.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:#66bb6a">✓ Signed in as Admin</div>`;
+    body.innerHTML = `
+      <div style="font-family:var(--mono);font-size:10px;color:#66bb6a;margin-bottom:12px">✓ Signed in as Admin</div>
+      <a href="portfolio/index.html" style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);text-decoration:none;padding:8px 0;border-top:1px solid var(--border2);opacity:.8;transition:opacity .15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.8">
+        ◈ Portfolio
+      </a>`;
     return;
   }
 

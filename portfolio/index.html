@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ash — Video Editor & Motion Graphics Designer</title>
+  <meta name="description" content="Video Editing & Marketing Portfolio" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --bg2: #111111; --bg3: #181818;
+      --line: rgba(255,255,255,0.07); --text: #f0ede8;
+      --muted: #6b6660; --accent: #e8d5a3; --accent2: #c4a96a;
+      --red: #d94f3d; --white: #ffffff;
+    }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 300; line-height: 1.6; overflow-x: hidden; cursor: default; }
+    body::before { content: ''; position: fixed; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E"); opacity: 0.028; pointer-events: none; z-index: 9000; }
+
+    /* NAV */
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 28px 48px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid transparent; transition: border-color 0.4s, background 0.4s, padding 0.4s; }
+    nav.scrolled { background: rgba(10,10,10,0.92); border-color: var(--line); padding: 18px 48px; backdrop-filter: blur(12px); }
+    .nav-logo { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 0.12em; color: var(--text); text-decoration: none; }
+    .nav-links { display: flex; gap: 40px; list-style: none; align-items: center; }
+    .nav-links a { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color 0.25s; }
+    .nav-links a:hover { color: var(--accent); }
+    .nav-links .cta { border: 1px solid var(--accent); color: var(--accent); padding: 8px 20px; transition: background 0.25s, color 0.25s; }
+    .nav-links .cta:hover { background: var(--accent); color: var(--bg); }
+    .nav-links .back { opacity: 0.5; font-size: 10px; display: none; }
+    .nav-links .back:hover { opacity: 1; color: var(--text); }
+    .nav-links .back.visible { display: inline; }
+    .auth-btn { background: none; border: 1px solid var(--line); color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; padding: 7px 16px; cursor: pointer; transition: color 0.25s, border-color 0.25s; }
+    .auth-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .auth-btn.signed-in { color: var(--accent); border-color: rgba(232,213,163,0.3); }
+    .auth-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 500; display: none; align-items: center; justify-content: center; padding: 20px; }
+    .auth-modal-overlay.open { display: flex; }
+    .auth-modal { background: var(--bg2); border: 1px solid rgba(232,213,163,0.15); padding: 32px; width: 100%; max-width: 380px; position: relative; }
+    .auth-modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 20px; }
+    .auth-modal-close { position: absolute; top: 14px; right: 16px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+    .auth-modal-close:hover { color: var(--text); }
+    .auth-field { margin-bottom: 16px; }
+    .auth-label { display: block; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .auth-input { width: 100%; background: var(--bg3); border: 1px solid var(--line); color: var(--text); padding: 12px 14px; font-size: 14px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
+    .auth-input:focus { border-color: var(--accent); }
+    .auth-submit { width: 100%; background: var(--accent); color: var(--bg); border: none; padding: 14px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; cursor: pointer; margin-top: 8px; transition: background 0.2s; }
+    .auth-submit:hover { background: var(--accent2); }
+    .auth-err { font-size: 11px; font-family: 'DM Mono', monospace; color: #ef9a9a; margin-top: 10px; }
+    .auth-signout { width: 100%; background: none; border: 1px solid var(--line); color: var(--muted); padding: 10px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; margin-top: 12px; transition: color 0.2s, border-color 0.2s; }
+    .auth-signout:hover { color: var(--red, #d94f3d); border-color: var(--red, #d94f3d); }
+
+    /* HERO */
+    .hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 48px 80px; position: relative; overflow: hidden; }
+    .hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 60% 60% at 70% 30%, rgba(232,213,163,0.06) 0%, transparent 70%), radial-gradient(ellipse 40% 50% at 20% 80%, rgba(201,91,74,0.04) 0%, transparent 60%); }
+    .hero-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 80px 80px; mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 100%); }
+    .hero-tag { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 24px; opacity: 0; animation: fadeUp 0.8s 0.2s forwards; }
+    .hero-name { font-family: 'Bebas Neue', sans-serif; font-size: clamp(100px, 18vw, 240px); line-height: 0.88; letter-spacing: -0.01em; color: var(--text); opacity: 0; animation: fadeUp 0.9s 0.35s forwards; }
+    .hero-name span { display: block; -webkit-text-stroke: 1px var(--text); color: transparent; }
+    .hero-sub { margin-top: 32px; font-size: 16px; color: var(--muted); letter-spacing: 0.05em; max-width: 400px; opacity: 0; animation: fadeUp 0.9s 0.5s forwards; }
+    .hero-cta { margin-top: 48px; display: flex; gap: 20px; align-items: center; opacity: 0; animation: fadeUp 0.9s 0.65s forwards; }
+    .btn-primary { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--bg); text-decoration: none; padding: 14px 32px; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; transition: background 0.25s, transform 0.25s; }
+    .btn-primary:hover { background: var(--accent2); transform: translateY(-2px); }
+    .btn-ghost { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; transition: color 0.25s; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+    .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
+    .hero-scroll { position: absolute; right: 48px; bottom: 80px; writing-mode: vertical-rl; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 12px; opacity: 0; animation: fadeIn 1s 1s forwards; }
+    .hero-scroll::after { content: ''; width: 1px; height: 60px; background: linear-gradient(to bottom, var(--accent), transparent); }
+
+    /* SECTIONS */
+    section { padding: 120px 48px; }
+    .section-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--accent); margin-bottom: 48px; display: flex; align-items: center; gap: 16px; }
+    .section-label::before { content: ''; width: 32px; height: 1px; background: var(--accent); }
+    .section-title { font-family: 'Bebas Neue', sans-serif; font-size: clamp(52px, 7vw, 96px); line-height: 0.92; letter-spacing: 0.02em; margin-bottom: 24px; }
+
+    /* DEMO REEL */
+    .reel-section { border-top: 1px solid var(--line); }
+    .reel-wrapper { margin-top: 56px; position: relative; aspect-ratio: 16/9; background: var(--bg3); border: 1px solid var(--line); overflow: hidden; max-width: 900px; }
+    .reel-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; background: linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%); }
+    .reel-play { width: 72px; height: 72px; border: 2px solid var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.25s, transform 0.25s; }
+    .reel-play:hover { background: var(--accent); transform: scale(1.08); }
+    .reel-play svg { width: 22px; height: 22px; fill: var(--accent); margin-left: 4px; transition: fill 0.25s; }
+    .reel-play:hover svg { fill: var(--bg); }
+    .reel-label { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+    .reel-coming-soon { position: absolute; top: 20px; right: 20px; background: var(--red); color: var(--white); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; padding: 6px 12px; }
+    .reel-corner { position: absolute; width: 20px; height: 20px; border-color: var(--accent); border-style: solid; }
+    .reel-corner.tl { top: 12px; left: 12px; border-width: 2px 0 0 2px; }
+    .reel-corner.br { bottom: 12px; right: 12px; border-width: 0 2px 2px 0; }
+    .reel-actions { margin-top: 32px; display: flex; gap: 24px; align-items: center; }
+
+    /* CLIENTS */
+    .clients-section { border-top: 1px solid var(--line); }
+    .clients-grid { margin-top: 64px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; }
+    .client-card { background: var(--bg2); padding: 52px 48px; border: 1px solid var(--line); transition: border-color 0.3s, background 0.3s; position: relative; overflow: hidden; }
+    .client-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 0; background: var(--accent); transition: height 0.4s ease; }
+    .client-card:hover::before { height: 100%; }
+    .client-card:hover { border-color: rgba(232,213,163,0.15); background: var(--bg3); }
+    .client-num { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 32px; }
+    .client-name { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 0.05em; color: var(--text); margin-bottom: 16px; }
+    .client-desc { font-size: 14px; color: var(--muted); line-height: 1.7; max-width: 360px; margin-bottom: 32px; }
+    .client-link { display: inline-flex; align-items: center; gap: 8px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); text-decoration: none; transition: gap 0.25s; }
+    .client-link:hover { gap: 14px; }
+    .client-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+    /* ABOUT / FAQ */
+    .about-section { border-top: 1px solid var(--line); }
+    .about-grid { margin-top: 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+    .faq-item { border: 1px solid var(--line); background: var(--bg2); padding: 44px 48px; transition: background 0.3s; }
+    .faq-item:hover { background: var(--bg3); }
+    .faq-q { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 20px; }
+    .faq-a { font-size: 15px; color: var(--text); line-height: 1.75; font-weight: 300; }
+    .faq-a strong { color: var(--accent); font-weight: 500; }
+
+    /* MARQUEE */
+    .marquee-section { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 28px 0; overflow: hidden; }
+    .marquee-track { display: flex; gap: 0; animation: marquee 22s linear infinite; white-space: nowrap; }
+    .marquee-item { display: inline-flex; align-items: center; gap: 40px; padding: 0 40px; font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 0.1em; color: var(--muted); }
+    .marquee-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+    /* FOOTER */
+    footer { border-top: 1px solid var(--line); padding: 64px 48px 48px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 48px; }
+    .footer-logo { font-family: 'Bebas Neue', sans-serif; font-size: 48px; letter-spacing: 0.06em; line-height: 1; color: var(--text); margin-bottom: 16px; }
+    .footer-tagline { font-size: 13px; color: var(--muted); max-width: 220px; }
+    .footer-heading { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 24px; }
+    .footer-links { list-style: none; }
+    .footer-links li { margin-bottom: 12px; }
+    .footer-links a { font-size: 14px; color: var(--muted); text-decoration: none; transition: color 0.25s; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-bottom { border-top: 1px solid var(--line); padding: 24px 48px; display: flex; justify-content: space-between; align-items: center; }
+    .footer-bottom p { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+    .footer-location { display: flex; align-items: center; gap: 8px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+    .location-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease-in-out infinite; }
+
+    /* ANIMATIONS */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+    .reveal { opacity: 0; transform: translateY(30px); transition: opacity 0.7s ease, transform 0.7s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+
+    @media (max-width: 768px) {
+      nav { padding: 20px 24px; }
+      nav.scrolled { padding: 14px 24px; }
+      .nav-links { gap: 20px; }
+      .hero { padding: 0 24px 60px; }
+      .hero-scroll { display: none; }
+      section { padding: 80px 24px; }
+      .clients-grid, .about-grid { grid-template-columns: 1fr; }
+      footer { grid-template-columns: 1fr; padding: 48px 24px 32px; }
+      .footer-bottom { padding: 20px 24px; flex-direction: column; gap: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav id="nav">
+    <a href="index.html" class="nav-logo">ASH</a>
+    <ul class="nav-links">
+      <li><a href="../tournaments.html" class="back">← Pool</a></li>
+      <li><a href="#reel">Reel</a></li>
+      <li><a href="projects.html">Projects</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="contact.html" class="cta">Contact Me</a></li>
+      <li><button class="auth-btn" id="authBtn" onclick="toggleAuthModal()">Sign In</button></li>
+    </ul>
+  </nav>
+
+  <!-- AUTH MODAL -->
+  <div class="auth-modal-overlay" id="authModal">
+    <div class="auth-modal">
+      <button class="auth-modal-close" onclick="closeAuthModal()">✕</button>
+      <div class="auth-modal-title" id="authModalTitle">Sign In</div>
+      <div id="authModalBody">
+        <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" type="email" id="authEmail" placeholder="your@email.com" /></div>
+        <div class="auth-field"><label class="auth-label">Password</label><input class="auth-input" type="password" id="authPassword" placeholder="••••••••" /></div>
+        <button class="auth-submit" onclick="doSignIn()">Sign In</button>
+        <p class="auth-err" id="authErr"></p>
+      </div>
+    </div>
+  </div>
+
+  <section class="hero">
+    <div class="hero-bg"></div>
+    <div class="hero-grid"></div>
+    <p class="hero-tag">Video Editor &amp; Motion Graphics Designer</p>
+    <h1 class="hero-name">
+      ASH
+      <span>STUDIO</span>
+    </h1>
+    <p class="hero-sub">Crafting compelling visual stories through editing, motion, and design — based in Canada.</p>
+    <div class="hero-cta">
+      <a href="#reel" class="btn-primary">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><polygon points="3,1 11,6 3,11"/></svg>
+        Watch Reel
+      </a>
+      <a href="#clients" class="btn-ghost">
+        View Work
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="10" x2="10" y2="2"/><polyline points="4,2 10,2 10,8"/></svg>
+      </a>
+    </div>
+    <div class="hero-scroll">Scroll</div>
+  </section>
+
+  <div class="marquee-section">
+    <div class="marquee-track">
+      <span class="marquee-item">DaVinci Resolve<span class="dot"></span></span>
+      <span class="marquee-item">Premiere Pro<span class="dot"></span></span>
+      <span class="marquee-item">Final Cut Pro<span class="dot"></span></span>
+      <span class="marquee-item">Photoshop<span class="dot"></span></span>
+      <span class="marquee-item">Motion Graphics<span class="dot"></span></span>
+      <span class="marquee-item">Color Grading<span class="dot"></span></span>
+      <span class="marquee-item">YouTube Editing<span class="dot"></span></span>
+      <span class="marquee-item">Stream Highlights<span class="dot"></span></span>
+      <span class="marquee-item">Educational Videos<span class="dot"></span></span>
+      <span class="marquee-item">DaVinci Resolve<span class="dot"></span></span>
+      <span class="marquee-item">Premiere Pro<span class="dot"></span></span>
+      <span class="marquee-item">Final Cut Pro<span class="dot"></span></span>
+      <span class="marquee-item">Photoshop<span class="dot"></span></span>
+      <span class="marquee-item">Motion Graphics<span class="dot"></span></span>
+      <span class="marquee-item">Color Grading<span class="dot"></span></span>
+      <span class="marquee-item">YouTube Editing<span class="dot"></span></span>
+      <span class="marquee-item">Stream Highlights<span class="dot"></span></span>
+      <span class="marquee-item">Educational Videos<span class="dot"></span></span>
+    </div>
+  </div>
+
+  <section class="reel-section" id="reel">
+    <p class="section-label reveal">Demo Reel</p>
+    <h2 class="section-title reveal reveal-delay-1">THE WORK</h2>
+    <div class="reel-wrapper reveal reveal-delay-2">
+      <div class="reel-placeholder">
+        <div class="reel-play">
+          <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+        </div>
+        <p class="reel-label">Demo Reel — 2024</p>
+      </div>
+      <div class="reel-coming-soon">Coming Soon</div>
+      <div class="reel-corner tl"></div>
+      <div class="reel-corner br"></div>
+    </div>
+    <div class="reel-actions reveal reveal-delay-3">
+      <a href="projects.html" class="btn-primary">View All Projects</a>
+      <a href="contact.html" class="btn-ghost">Get In Touch</a>
+    </div>
+  </section>
+
+  <section class="clients-section" id="clients">
+    <p class="section-label reveal">Selected Clients</p>
+    <h2 class="section-title reveal reveal-delay-1">WHO I'VE<br>WORKED WITH</h2>
+    <div class="clients-grid">
+      <div class="client-card reveal">
+        <p class="client-num">01 / 06</p>
+        <h3 class="client-name">yo_boy_roy</h3>
+        <p class="client-desc">Worked with client to edit humorous gaming videos following a storyline — character-driven content built for retention and shareability.</p>
+        <a href="https://www.youtube.com/@yoboyRoy" target="_blank" rel="noopener" class="client-link">
+          YouTube Channel
+          <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7,7 17,7 17,17"/></svg>
+        </a>
+      </div>
+      <div class="client-card reveal reveal-delay-1">
+        <p class="client-num">02 / 06</p>
+        <h3 class="client-name">YYC Music Awards</h3>
+        <p class="client-desc">Created original visuals & videos celebrating local music performers and their achievements — event coverage and promotional content.</p>
+        <a href="https://www.instagram.com/yycmusicawards/" target="_blank" rel="noopener" class="client-link">
+          Instagram
+          <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7,7 17,7 17,17"/></svg>
+        </a>
+      </div>
+      <div class="client-card reveal">
+        <p class="client-num">03 / 06</p>
+        <h3 class="client-name">Lammle's Western Wear</h3>
+        <p class="client-desc">Filmed and edited western lifestyle content for Instagram and TikTok — short-form videos crafted to showcase the brand's style and connect with their community.</p>
+        <div style="display:flex; gap: 20px; flex-wrap: wrap;">
+          <a href="https://www.instagram.com/lammleswesternwear" target="_blank" rel="noopener" class="client-link">Instagram <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7,7 17,7 17,17"/></svg></a>
+          <a href="https://www.tiktok.com/@lammleswesternwear" target="_blank" rel="noopener" class="client-link">TikTok <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7,7 17,7 17,17"/></svg></a>
+        </div>
+      </div>
+      <div class="client-card reveal reveal-delay-1">
+        <p class="client-num">04 / 06</p>
+        <h3 class="client-name">Media&amp;Motion</h3>
+        <p class="client-desc">Edited highlight reels and game footage for youth sports teams — clean, energetic cuts that capture the effort on the field and give athletes something to be proud of.</p>
+        <span class="client-link" style="pointer-events:none; color: var(--muted);">Youth Sports Media</span>
+      </div>
+      <div class="client-card reveal">
+        <p class="client-num">05 / 06</p>
+        <h3 class="client-name">McMaster University</h3>
+        <p class="client-desc">Collaborated with professionals from the Faculty of Engineering to produce educational tutorial videos for students — clear, polished, and accessible.</p>
+        <span class="client-link" style="pointer-events:none; color: var(--muted);">Faculty of Engineering</span>
+      </div>
+      <div class="client-card reveal reveal-delay-1">
+        <p class="client-num">06 / 06</p>
+        <h3 class="client-name">Big Mig</h3>
+        <p class="client-desc">Condensed lengthy Twitch VODs into punchy stream highlight reels — fast turnaround, platform-optimized cuts that keep viewers engaged.</p>
+        <a href="https://www.youtube.com/channel/UCcRmO5mPsPs55vvVb5WjicQ" target="_blank" rel="noopener" class="client-link">
+          YouTube Channel
+          <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7,7 17,7 17,17"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="about-section" id="about">
+    <p class="section-label reveal">About</p>
+    <h2 class="section-title reveal reveal-delay-1">THE DETAILS</h2>
+    <div class="about-grid">
+      <div class="faq-item reveal">
+        <p class="faq-q">Primary Software</p>
+        <p class="faq-a">I primarily work in <strong>DaVinci Resolve</strong>. I'm also proficient in <strong>Photoshop</strong>, <strong>Premiere Pro</strong>, <strong>After Effects</strong>, and <strong>Final Cut Pro</strong> — whatever the project calls for.</p>
+      </div>
+      <div class="faq-item reveal reveal-delay-1">
+        <p class="faq-q">Years of Experience</p>
+        <p class="faq-a">Professionally editing since <strong>2020</strong> — and casually since <strong>2017</strong>. That's years of honing the craft across gaming, music, education, and live-stream content.</p>
+      </div>
+      <div class="faq-item reveal">
+        <p class="faq-q">Location & Timezone</p>
+        <p class="faq-a">Based in <strong>Canada</strong>, operating in the <strong>GMT −6/−7</strong> timezone. Available for remote projects worldwide.</p>
+      </div>
+      <div class="faq-item reveal reveal-delay-1">
+        <p class="faq-q">What I Do</p>
+        <p class="faq-a">Video editing, motion graphics, color grading, and content strategy for YouTubers, streamers, brands, and institutions. Every cut is intentional.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="contact" style="border-top: 1px solid var(--line); text-align: center; padding: 140px 48px;">
+    <p class="section-label reveal" style="justify-content: center;">Get In Touch</p>
+    <h2 class="section-title reveal reveal-delay-1" style="font-size: clamp(52px, 8vw, 110px);">LET'S MAKE<br>SOMETHING</h2>
+    <p class="reveal reveal-delay-2" style="color: var(--muted); font-size: 15px; max-width: 420px; margin: 24px auto 48px;">Have a project in mind? I'd love to hear about it. Reach out and let's talk about how I can help bring your vision to life.</p>
+    <a href="contact.html" class="btn-primary reveal reveal-delay-3" style="display: inline-flex; font-size: 12px;">
+      Send a Message
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13,6 19,12 13,18"/></svg>
+    </a>
+  </section>
+
+  <footer>
+    <div>
+      <div class="footer-logo">ASH</div>
+      <p class="footer-tagline">Video Editing & Motion Graphics Design — Canada</p>
+    </div>
+    <div>
+      <p class="footer-heading">Navigation</p>
+      <ul class="footer-links">
+        <li><a href="#reel">Demo Reel</a></li>
+        <li><a href="projects.html">Projects</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+    </div>
+    <div>
+      <p class="footer-heading">Clients</p>
+      <ul class="footer-links">
+        <li><a href="https://www.youtube.com/@yoboyRoy" target="_blank">yo_boy_roy</a></li>
+        <li><a href="https://www.instagram.com/yycmusicawards/" target="_blank">YYC Music Awards</a></li>
+        <li><a href="https://www.youtube.com/channel/UCcRmO5mPsPs55vvVb5WjicQ" target="_blank">Big Mig</a></li>
+      </ul>
+    </div>
+  </footer>
+  <div class="footer-bottom">
+    <p>© <span id="copy-year"></span> Ash — All Rights Reserved</p>
+    <div class="footer-location"><span class="location-dot"></span>Canada — GMT −6/−7</div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://skonplkvlsccjjmiewdv.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrb25wbGt2bHNjY2pqbWlld2R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODM3MDUsImV4cCI6MjA5NTY1OTcwNX0.Fe7YCAUAndZd6EVFqHBiFyQrQx4mar0B4FD8E3D_G7U';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => { nav.classList.toggle('scrolled', window.scrollY > 60); });
+    const reveals = document.querySelectorAll('.reveal');
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+    }, { threshold: 0.12 });
+    reveals.forEach(el => obs.observe(el));
+
+    async function updateAuthNav() {
+      const { data: { session } } = await sb.auth.getSession();
+      const btn = document.getElementById('authBtn');
+      const backLink = document.querySelector('.nav-links .back');
+      if (session) {
+        const { data: prof } = await sb.from('profiles').select('display_name,is_admin').eq('id', session.user.id).single();
+        const label = prof?.display_name || session.user.email.split('@')[0];
+        btn.textContent = label;
+        btn.classList.add('signed-in');
+        backLink.classList.add('visible');
+      } else {
+        btn.textContent = 'Sign In';
+        btn.classList.remove('signed-in');
+        backLink.classList.remove('visible');
+      }
+    }
+
+    function toggleAuthModal() {
+      const modal = document.getElementById('authModal');
+      if (modal.classList.contains('open')) { closeAuthModal(); return; }
+      sb.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          document.getElementById('authModalTitle').textContent = 'Account';
+          document.getElementById('authModalBody').innerHTML = `
+            <p style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:16px">${session.user.email}</p>
+            <button class="auth-signout" onclick="doSignOut()">Sign Out</button>`;
+        } else {
+          document.getElementById('authModalTitle').textContent = 'Sign In';
+          document.getElementById('authModalBody').innerHTML = `
+            <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" type="email" id="authEmail" placeholder="your@email.com" /></div>
+            <div class="auth-field"><label class="auth-label">Password</label><input class="auth-input" type="password" id="authPassword" placeholder="••••••••" /></div>
+            <button class="auth-submit" onclick="doSignIn()">Sign In</button>
+            <p class="auth-err" id="authErr"></p>`;
+        }
+        modal.classList.add('open');
+      });
+    }
+    function closeAuthModal() { document.getElementById('authModal').classList.remove('open'); }
+    document.getElementById('authModal').addEventListener('click', e => { if (e.target === document.getElementById('authModal')) closeAuthModal(); });
+
+    async function doSignIn() {
+      const email = document.getElementById('authEmail').value.trim();
+      const pass = document.getElementById('authPassword').value;
+      const err = document.getElementById('authErr');
+      err.textContent = '';
+      const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) { err.textContent = error.message; return; }
+      closeAuthModal();
+      updateAuthNav();
+    }
+    async function doSignOut() {
+      await sb.auth.signOut();
+      closeAuthModal();
+      updateAuthNav();
+    }
+
+    updateAuthNav();
+    document.getElementById('copy-year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
