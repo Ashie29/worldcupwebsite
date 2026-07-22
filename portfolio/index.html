@@ -383,19 +383,12 @@
       const { data: { session } } = await sb.auth.getSession();
       const btn = document.getElementById('authBtn');
       const backLink = document.querySelector('.nav-links .back');
-      if (session) {
-        const { data: prof } = await sb.from('profiles').select('display_name,is_admin').eq('id', session.user.id).single();
-        if (prof?.is_admin) {
-          btn.textContent = prof?.display_name || session.user.email.split('@')[0];
-          btn.classList.add('signed-in');
-          backLink.classList.add('visible');
-        } else {
-          await sb.auth.signOut();
-          btn.textContent = 'Admin';
-          btn.classList.remove('signed-in');
-          backLink.classList.remove('visible');
-        }
+      if (session?.user?.email === 'admin@vermanipool.internal') {
+        btn.textContent = 'Admin';
+        btn.classList.add('signed-in');
+        backLink.classList.add('visible');
       } else {
+        if (session) await sb.auth.signOut();
         btn.textContent = 'Admin';
         btn.classList.remove('signed-in');
         backLink.classList.remove('visible');
