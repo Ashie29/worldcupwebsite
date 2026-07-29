@@ -686,8 +686,43 @@ function showEditModal(t) {
       <button class="btn btn-outline" id="m-cancel-btn">Cancel</button>
     </div>
     <div class="modal-status" id="m-msg"></div>
+    <div style="border-top:1px solid var(--faint);margin-top:20px;padding-top:16px">
+      <button class="btn" id="m-delete-btn" style="background:none;border:1px solid rgba(217,79,61,0.35);color:rgba(217,79,61,0.6);font-size:9px;letter-spacing:.15em;width:100%;transition:border-color .15s,color .15s" onmouseover="this.style.borderColor='#d94f3d';this.style.color='#d94f3d'" onmouseout="this.style.borderColor='rgba(217,79,61,0.35)';this.style.color='rgba(217,79,61,0.6)'">✕ DELETE TOURNAMENT</button>
+    </div>
   `);
   document.getElementById('m-cancel-btn').onclick = closeModal;
+
+  document.getElementById('m-delete-btn').onclick = async () => {
+    const btn = document.getElementById('m-delete-btn');
+    const msg = document.getElementById('m-msg');
+    if (btn.dataset.confirm !== '1') {
+      btn.dataset.confirm = '1';
+      btn.textContent = '⚠ Click again to confirm deletion';
+      btn.style.borderColor = '#d94f3d';
+      btn.style.color = '#d94f3d';
+      setTimeout(() => {
+        if (btn.dataset.confirm === '1') {
+          btn.dataset.confirm = '';
+          btn.textContent = '✕ DELETE TOURNAMENT';
+          btn.style.borderColor = 'rgba(217,79,61,0.35)';
+          btn.style.color = 'rgba(217,79,61,0.6)';
+        }
+      }, 4000);
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Deleting…';
+    const { error } = await sb.from('tournaments').delete().eq('id', t.id);
+    if (error) {
+      msg.textContent = error.message; msg.style.color = '#ef9a9a';
+      btn.disabled = false; btn.textContent = '✕ DELETE TOURNAMENT';
+      btn.dataset.confirm = '';
+    } else {
+      msg.textContent = '✓ Deleted'; msg.style.color = '#66bb6a';
+      T.tournaments = T.tournaments.filter(x => x.id !== t.id);
+      renderPage();
+      setTimeout(closeModal, 600);
+    }
+  };
 
   // Banner URL live preview
   document.getElementById('m-banner').addEventListener('input', function() {

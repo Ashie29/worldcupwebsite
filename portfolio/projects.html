@@ -126,6 +126,11 @@
     }
     .admin-add-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+    /* ADMIN DELETE CLIENT BTN */
+    .admin-delete-client-btn { display: none; background: none; border: 1px solid rgba(217,79,61,0.35); color: rgba(217,79,61,0.6); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 5px 12px; cursor: pointer; transition: border-color 0.2s, color 0.2s; }
+    .admin-delete-client-btn:hover { border-color: var(--red); color: var(--red); }
+    body.edit-mode .admin-delete-client-btn { display: inline-block; }
+
     /* ADMIN TOOLBAR */
     .admin-toolbar {
       display: none;
@@ -138,6 +143,8 @@
     }
     .admin-toolbar.show { display: flex; }
     .admin-toolbar-label { color: var(--accent); }
+    .admin-toolbar-add { background: none; border: 1px solid rgba(232,213,163,0.3); color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; padding: 5px 12px; cursor: pointer; transition: color 0.2s, border-color 0.2s; }
+    .admin-toolbar-add:hover { color: var(--accent); border-color: var(--accent); }
     .admin-toolbar-mode { color: var(--muted); cursor: pointer; transition: color 0.2s; }
     .admin-toolbar-mode:hover { color: var(--text); }
     .admin-toolbar-mode.active { color: var(--accent); }
@@ -230,13 +237,6 @@
 
   <div class="filter-bar" id="filterBar">
     <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="sports">Sports</button>
-    <button class="filter-btn" data-filter="yyc">YYC Music Awards</button>
-    <button class="filter-btn" data-filter="gaming">Gaming</button>
-    <button class="filter-btn" data-filter="royroy">yo_boy_roy</button>
-    <button class="filter-btn" data-filter="mcmaster">McMaster</button>
-    <button class="filter-btn" data-filter="shorts">Shorts</button>
-    <button class="filter-btn" data-filter="logo">Logo Animations</button>
   </div>
 
   <div id="sectionsContainer"></div>
@@ -264,6 +264,7 @@
   <!-- ADMIN TOOLBAR -->
   <div class="admin-toolbar" id="adminToolbar">
     <span class="admin-toolbar-label">⚙ Admin</span>
+    <button class="admin-toolbar-add" id="addClientBtn">＋ Add Client</button>
     <span class="admin-toolbar-mode active" id="editModeToggle" title="Toggle edit mode">Edit Mode: On</span>
   </div>
 
@@ -293,6 +294,36 @@
     </div>
   </div>
 
+  <!-- ADD CLIENT MODAL -->
+  <div class="modal-overlay" id="addClientModal">
+    <div class="modal">
+      <button class="modal-close" id="addClientModalClose">✕</button>
+      <div class="modal-title">Add Client</div>
+      <div class="field">
+        <label class="field-label" for="addClientName">Name</label>
+        <input class="field-input" type="text" id="addClientName" placeholder="e.g. Nike" />
+      </div>
+      <div class="field">
+        <label class="field-label" for="addClientSub">Description <span style="opacity:.5">(optional)</span></label>
+        <input class="field-input" type="text" id="addClientSub" placeholder="e.g. Brand Videos · Promos" />
+      </div>
+      <div class="field">
+        <label class="field-label" for="addClientGrid">Layout</label>
+        <select class="field-select" id="addClientGrid">
+          <option value="video-grid-3">3-Column (standard)</option>
+          <option value="video-grid-2">2-Column (wider)</option>
+          <option value="shorts-grid">4-Column Shorts (vertical)</option>
+          <option value="logo-grid">2-Column Square (logos)</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-accent" id="addClientConfirmBtn">Add Client</button>
+        <button class="btn-outline" id="addClientCancelBtn">Cancel</button>
+      </div>
+      <p class="modal-status" id="addClientStatus"></p>
+    </div>
+  </div>
+
   <!-- ADD VIDEO MODAL -->
   <div class="modal-overlay" id="addModal">
     <div class="modal">
@@ -300,15 +331,7 @@
       <div class="modal-title">Add Video</div>
       <div class="field">
         <label class="field-label" for="addSection">Section</label>
-        <select class="field-select" id="addSection">
-          <option value="sports">Sports</option>
-          <option value="yyc">YYC Music Awards</option>
-          <option value="gaming">Gaming</option>
-          <option value="royroy">yo_boy_roy</option>
-          <option value="mcmaster">McMaster</option>
-          <option value="shorts">Shorts</option>
-          <option value="logo">Logo Animations</option>
-        </select>
+        <select class="field-select" id="addSection"></select>
       </div>
       <div class="field">
         <label class="field-label" for="addUrl">URL</label>
@@ -332,57 +355,60 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrb25wbGt2bHNjY2pqbWlld2R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODM3MDUsImV4cCI6MjA5NTY1OTcwNX0.Fe7YCAUAndZd6EVFqHBiFyQrQx4mar0B4FD8E3D_G7U';
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const SECTIONS = [
-      { id: 'sports',   label: 'Sports Videos\n& Animations', sub: 'Motion Graphics · Highlight Reels · Promos',                  grid: 'video-grid-3', cardClass: 'video-card', embedClass: 'video-embed' },
-      { id: 'yyc',      label: 'YYC Music\nAwards',           sub: 'Interview Style · Motion Graphics · Artist Showcases',        grid: 'video-grid-3', cardClass: 'video-card', embedClass: 'video-embed' },
-      { id: 'gaming',   label: 'Ashie',                        sub: 'Gaming Videos · Personal Channel',                            grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
-      { id: 'royroy',   label: 'yo_boy_roy',                   sub: '816k Subscribers · Storyline & Challenge Videos',             grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
-      { id: 'mcmaster', label: 'McMaster\nUniversity',         sub: 'Faculty of Engineering · Tutorial Style Videos',              grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
-      { id: 'shorts',   label: 'Shorts\nGallery',             sub: 'Short-Form · Vertical Content · Reels',                       grid: 'shorts-grid',  cardClass: 'short-card', embedClass: 'short-embed' },
-      { id: 'logo',     label: 'Logo\nAnimations',            sub: 'Motion Graphics · Brand Identity · Intros',                   grid: 'logo-grid',    cardClass: 'logo-card',  embedClass: 'logo-embed' },
+
+    // Seed data (used on first load or migration)
+    const LEGACY_SECTIONS = [
+      { id: 'sports',   label: 'Sports Videos\n& Animations', sub: 'Motion Graphics · Highlight Reels · Promos',              grid: 'video-grid-3', cardClass: 'video-card', embedClass: 'video-embed' },
+      { id: 'yyc',      label: 'YYC Music\nAwards',           sub: 'Interview Style · Motion Graphics · Artist Showcases',    grid: 'video-grid-3', cardClass: 'video-card', embedClass: 'video-embed' },
+      { id: 'gaming',   label: 'Ashie',                        sub: 'Gaming Videos · Personal Channel',                        grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
+      { id: 'royroy',   label: 'yo_boy_roy',                   sub: '816k Subscribers · Storyline & Challenge Videos',         grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
+      { id: 'mcmaster', label: 'McMaster\nUniversity',         sub: 'Faculty of Engineering · Tutorial Style Videos',          grid: 'video-grid-2', cardClass: 'video-card', embedClass: 'video-embed' },
+      { id: 'shorts',   label: 'Shorts\nGallery',              sub: 'Short-Form · Vertical Content · Reels',                   grid: 'shorts-grid',  cardClass: 'short-card', embedClass: 'short-embed' },
+      { id: 'logo',     label: 'Logo\nAnimations',             sub: 'Motion Graphics · Brand Identity · Intros',               grid: 'logo-grid',    cardClass: 'logo-card',  embedClass: 'logo-embed' },
     ];
+
+    const DEFAULT_CLIENTS = LEGACY_SECTIONS.map(s => ({
+      id: s.id, name: s.label.replace('\n', ' '), sub: s.sub, grid: s.grid, cardClass: s.cardClass, embedClass: s.embedClass,
+    }));
 
     const DEFAULT_ITEMS = [
-      { id:'s1', section:'sports',   type:'youtube', url:'https://www.youtube.com/embed/fWj3cv2x_fE?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 1' },
-      { id:'s2', section:'sports',   type:'youtube', url:'https://www.youtube.com/embed/sfA14pnhupg?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 2' },
-      { id:'s3', section:'sports',   type:'youtube', url:'https://www.youtube.com/embed/qZPkOyNSlkc?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 3' },
-      { id:'s4', section:'sports',   type:'video',   url:'https://framerusercontent.com/assets/Xtw8EGSITfpsHKKDNi4PHVBkM.mp4',                               title:'Sports 4' },
-      { id:'s5', section:'sports',   type:'video',   url:'https://framerusercontent.com/assets/tnxSZaRX4CPLCdpJCkTv5sK4Og.mp4',                              title:'Sports 5' },
-      { id:'y1', section:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/vuv8JxTtfSGUO7Z0THDAyvnvbR0.mp4',                              title:'YYC 1' },
-      { id:'y2', section:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/lYVLvaYcRte8OT8MpAWu5ODYkGc.mp4',                              title:'YYC 2' },
-      { id:'y3', section:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/8hPd7C1wsa487HjvB6z5DbYdjA.mp4',                               title:'YYC 3' },
-      { id:'y4', section:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/Cz2AHYGm8u1vTCqc7TrY2Cm8dA.mp4',                              title:'YYC 4' },
-      { id:'y5', section:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/ZdGWQTLYY06xqSh61yPNiwWqvI.mp4',                               title:'YYC 5' },
-      { id:'g1', section:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/TH5cQyUSWOA?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 1' },
-      { id:'g2', section:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/0JKgDkNSJFs?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 2' },
-      { id:'g3', section:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/hhLtZyuLU9M?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 3' },
-      { id:'g4', section:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/M4h_WA3P8ME?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 4' },
-      { id:'gx', section:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/3tfdPiOoRBA?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Other Project' },
-      { id:'r1', section:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/dDzcudM_5tM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 1' },
-      { id:'r2', section:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/BfAafvILHzo?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 2' },
-      { id:'r3', section:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/0OjQ3s4afKw?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 3' },
-      { id:'r4', section:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/dTy0p-eiJYM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 4' },
-      { id:'m1', section:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/VE90LFedENw?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 1' },
-      { id:'m2', section:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/MIHUxbaMAOE?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 2' },
-      { id:'m3', section:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/WcREF4Xrsi4?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 3' },
-      { id:'m4', section:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/pmwQTQHaH6g?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 4' },
-      { id:'sh1',section:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/hTwGQ9YRuw8?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 1' },
-      { id:'sh2',section:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/-HFs6vDDBjM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 2' },
-      { id:'sh3',section:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/Jt2zA3npU3A?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 3' },
-      { id:'sh4',section:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/rSAVusKio7w?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 4' },
-      { id:'l1', section:'logo',     type:'video',   url:'https://framerusercontent.com/assets/OUOsCGWx3595hrqEh83cD20MA.mp4',                               title:'Logo 1' },
-      { id:'l2', section:'logo',     type:'video',   url:'https://framerusercontent.com/assets/ZqeNXE9U8YoK74nJTrM6zSARbcE.mp4',                            title:'Logo 2' },
+      { id:'s1', clientId:'sports',   type:'youtube', url:'https://www.youtube.com/embed/fWj3cv2x_fE?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 1' },
+      { id:'s2', clientId:'sports',   type:'youtube', url:'https://www.youtube.com/embed/sfA14pnhupg?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 2' },
+      { id:'s3', clientId:'sports',   type:'youtube', url:'https://www.youtube.com/embed/qZPkOyNSlkc?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Sports 3' },
+      { id:'s4', clientId:'sports',   type:'video',   url:'https://framerusercontent.com/assets/Xtw8EGSITfpsHKKDNi4PHVBkM.mp4',                               title:'Sports 4' },
+      { id:'s5', clientId:'sports',   type:'video',   url:'https://framerusercontent.com/assets/tnxSZaRX4CPLCdpJCkTv5sK4Og.mp4',                              title:'Sports 5' },
+      { id:'y1', clientId:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/vuv8JxTtfSGUO7Z0THDAyvnvbR0.mp4',                              title:'YYC 1' },
+      { id:'y2', clientId:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/lYVLvaYcRte8OT8MpAWu5ODYkGc.mp4',                              title:'YYC 2' },
+      { id:'y3', clientId:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/8hPd7C1wsa487HjvB6z5DbYdjA.mp4',                               title:'YYC 3' },
+      { id:'y4', clientId:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/Cz2AHYGm8u1vTCqc7TrY2Cm8dA.mp4',                              title:'YYC 4' },
+      { id:'y5', clientId:'yyc',      type:'video',   url:'https://framerusercontent.com/assets/ZdGWQTLYY06xqSh61yPNiwWqvI.mp4',                               title:'YYC 5' },
+      { id:'g1', clientId:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/TH5cQyUSWOA?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 1' },
+      { id:'g2', clientId:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/0JKgDkNSJFs?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 2' },
+      { id:'g3', clientId:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/hhLtZyuLU9M?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 3' },
+      { id:'g4', clientId:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/M4h_WA3P8ME?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Gaming 4' },
+      { id:'gx', clientId:'gaming',   type:'youtube', url:'https://www.youtube.com/embed/3tfdPiOoRBA?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Other Project' },
+      { id:'r1', clientId:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/dDzcudM_5tM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 1' },
+      { id:'r2', clientId:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/BfAafvILHzo?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 2' },
+      { id:'r3', clientId:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/0OjQ3s4afKw?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 3' },
+      { id:'r4', clientId:'royroy',   type:'youtube', url:'https://www.youtube.com/embed/dTy0p-eiJYM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Roy 4' },
+      { id:'m1', clientId:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/VE90LFedENw?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 1' },
+      { id:'m2', clientId:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/MIHUxbaMAOE?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 2' },
+      { id:'m3', clientId:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/WcREF4Xrsi4?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 3' },
+      { id:'m4', clientId:'mcmaster', type:'youtube', url:'https://www.youtube.com/embed/pmwQTQHaH6g?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'McMaster 4' },
+      { id:'sh1',clientId:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/hTwGQ9YRuw8?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 1' },
+      { id:'sh2',clientId:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/-HFs6vDDBjM?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 2' },
+      { id:'sh3',clientId:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/Jt2zA3npU3A?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 3' },
+      { id:'sh4',clientId:'shorts',   type:'youtube', url:'https://www.youtube.com/embed/rSAVusKio7w?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1',   title:'Short 4' },
+      { id:'l1', clientId:'logo',     type:'video',   url:'https://framerusercontent.com/assets/OUOsCGWx3595hrqEh83cD20MA.mp4',                               title:'Logo 1' },
+      { id:'l2', clientId:'logo',     type:'video',   url:'https://framerusercontent.com/assets/ZqeNXE9U8YoK74nJTrM6zSARbcE.mp4',                            title:'Logo 2' },
     ];
 
-    let portfolioItems = [];
+    let portfolioData = { clients: [], items: [] };
     let isAdmin = false;
-    let addTargetSection = null;
 
     function normalizeYouTubeUrl(url) {
       const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-      if (ytMatch) {
-        return `https://www.youtube.com/embed/${ytMatch[1]}?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1`;
-      }
+      if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?iv_load_policy=3&rel=0&modestbranding=1&playsinline=1`;
       return null;
     }
 
@@ -392,9 +418,15 @@
       return 'video';
     }
 
-    function buildEmbedHtml(item, sec) {
-      const isLogo = sec.id === 'logo';
-      const wrapClass = isLogo ? sec.embedClass : sec.embedClass;
+    function gridCardEmbed(gridId) {
+      if (gridId === 'shorts-grid') return { cardClass: 'short-card', embedClass: 'short-embed' };
+      if (gridId === 'logo-grid')   return { cardClass: 'logo-card',  embedClass: 'logo-embed' };
+      return { cardClass: 'video-card', embedClass: 'video-embed' };
+    }
+
+    function buildEmbedHtml(item, client) {
+      const isLogo = client.grid === 'logo-grid';
+      const embedClass = client.embedClass || gridCardEmbed(client.grid).embedClass;
       let inner = '';
       if (item.type === 'youtube') {
         inner = `<iframe src="${item.url}" loading="lazy" allowfullscreen title="${item.title || ''}"></iframe>`;
@@ -404,23 +436,38 @@
         const loop = isLogo ? ' loop' : '';
         inner = `<video controls preload="none"${loop}><source src="${item.url}" type="video/mp4"></video>`;
       }
-      return `<div class="${wrapClass}">${inner}</div>`;
+      return `<div class="${embedClass}">${inner}</div>`;
+    }
+
+    function renderFilterBar() {
+      const bar = document.getElementById('filterBar');
+      bar.innerHTML = '<button class="filter-btn active" data-filter="all">All</button>' +
+        portfolioData.clients.map(c => `<button class="filter-btn" data-filter="${c.id}">${c.name}</button>`).join('');
+      bar.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          bar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          applyFilter(btn.dataset.filter);
+        });
+      });
     }
 
     function renderSections() {
       const container = document.getElementById('sectionsContainer');
       container.innerHTML = '';
 
-      SECTIONS.forEach(sec => {
-        const items = portfolioItems.filter(i => i.section === sec.id);
-        const labelLines = sec.label.split('\n');
-        const headingHtml = labelLines.length > 1
-          ? `${labelLines[0]}<br>${labelLines[1]}`
-          : labelLines[0];
+      portfolioData.clients.forEach(client => {
+        const items = portfolioData.items.filter(i => i.clientId === client.id);
+        const nameLines = client.name.split('\n');
+        const headingHtml = nameLines.length > 1 ? `${nameLines[0]}<br>${nameLines[1]}` : nameLines[0];
+        const { cardClass, embedClass } = gridCardEmbed(client.grid);
+        const cc = client.cardClass || cardClass;
+        const ec = client.embedClass || embedClass;
+        const gridClass = client.grid || 'video-grid-3';
 
         const cardsHtml = items.map(item => `
-          <div class="${sec.cardClass}" data-item-id="${item.id}">
-            ${buildEmbedHtml(item, sec)}
+          <div class="${cc}" data-item-id="${item.id}">
+            ${buildEmbedHtml(item, { ...client, embedClass: ec })}
             <div class="video-overlay"><div class="video-overlay-icon"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div></div>
             <button class="admin-edit-btn" data-edit-id="${item.id}" title="Edit video">✎</button>
             <button class="admin-delete-btn" data-delete-id="${item.id}" title="Remove video">×</button>
@@ -429,27 +476,45 @@
 
         const section = document.createElement('section');
         section.className = 'project-section reveal';
-        section.dataset.category = sec.id;
+        section.dataset.category = client.id;
         section.innerHTML = `
           <div class="section-header">
             <div>
               <h2 class="section-heading">${headingHtml}</h2>
-              <p class="section-sub">${sec.sub}</p>
+              <p class="section-sub">${client.sub || ''}</p>
             </div>
+            <button class="admin-delete-client-btn" data-delete-client="${client.id}" title="Delete client">✕ Delete Client</button>
           </div>
-          <div class="${sec.grid}">${cardsHtml}</div>
+          <div class="${gridClass}">${cardsHtml}</div>
           <div class="admin-add-row">
-            <button class="admin-add-btn" data-add-section="${sec.id}">＋ Add Video to ${sec.label.replace('\n', ' ')}</button>
+            <button class="admin-add-btn" data-add-section="${client.id}">＋ Add Video to ${client.name}</button>
           </div>
         `;
         container.appendChild(section);
       });
 
-      // Re-bind edit buttons
+      // Delete client buttons
+      document.querySelectorAll('[data-delete-client]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const id = btn.dataset.deleteClient;
+          const client = portfolioData.clients.find(c => c.id === id);
+          const count = portfolioData.items.filter(i => i.clientId === id).length;
+          if (!confirm(`Delete "${client?.name}"? This will also remove ${count} video${count !== 1 ? 's' : ''}.`)) return;
+          portfolioData.clients = portfolioData.clients.filter(c => c.id !== id);
+          portfolioData.items = portfolioData.items.filter(i => i.clientId !== id);
+          savePortfolio();
+          renderFilterBar();
+          renderSections();
+          applyFilter('all');
+        });
+      });
+
+      // Edit buttons
       document.querySelectorAll('[data-edit-id]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
-          const item = portfolioItems.find(i => i.id === btn.dataset.editId);
+          const item = portfolioData.items.find(i => i.id === btn.dataset.editId);
           if (!item) return;
           document.getElementById('editUrl').value = item.url || '';
           document.getElementById('editTitle').value = item.title || '';
@@ -460,24 +525,25 @@
         });
       });
 
-      // Re-bind delete buttons
+      // Delete video buttons
       document.querySelectorAll('[data-delete-id]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
           const id = btn.dataset.deleteId;
           if (!confirm('Remove this video?')) return;
-          portfolioItems = portfolioItems.filter(i => i.id !== id);
+          portfolioData.items = portfolioData.items.filter(i => i.id !== id);
           savePortfolio();
           renderSections();
           applyFilter(currentFilter);
         });
       });
 
-      // Re-bind add buttons
+      // Add video buttons
       document.querySelectorAll('[data-add-section]').forEach(btn => {
         btn.addEventListener('click', () => {
-          addTargetSection = btn.dataset.addSection;
-          document.getElementById('addSection').value = addTargetSection;
+          const clientId = btn.dataset.addSection;
+          const sel = document.getElementById('addSection');
+          sel.innerHTML = portfolioData.clients.map(c => `<option value="${c.id}"${c.id === clientId ? ' selected' : ''}>${c.name}</option>`).join('');
           document.getElementById('addUrl').value = '';
           document.getElementById('addTitle').value = '';
           document.getElementById('addStatus').textContent = '';
@@ -485,10 +551,24 @@
         });
       });
 
-      // Re-run reveal + filter
-      document.querySelectorAll('.reveal').forEach(el => {
-        revealObs.observe(el);
+      // Gold play button → actually play the video for non-YouTube cards
+      document.querySelectorAll('.video-card, .short-card, .logo-card').forEach(card => {
+        const video = card.querySelector('video');
+        if (!video) return;
+        const overlay = card.querySelector('.video-overlay');
+        if (!overlay) return;
+        overlay.style.pointerEvents = 'auto';
+        overlay.addEventListener('click', () => {
+          if (video.paused) video.play();
+          else video.pause();
+        });
+        // Hide overlay while playing so native controls are accessible
+        video.addEventListener('play',  () => overlay.style.opacity = '0');
+        video.addEventListener('pause', () => overlay.style.opacity = '');
+        video.addEventListener('ended', () => overlay.style.opacity = '');
       });
+
+      document.querySelectorAll('.reveal').forEach(el => revealObs.observe(el));
       applyFilter(currentFilter);
     }
 
@@ -508,7 +588,7 @@
 
     async function savePortfolio() {
       const { error } = await sb.from('round_settings').upsert(
-        { round_id: '__portfolio__', tournament_id: 'portfolio', prizes: JSON.stringify(portfolioItems) },
+        { round_id: '__portfolio__', tournament_id: 'portfolio', prizes: JSON.stringify(portfolioData) },
         { onConflict: 'round_id,tournament_id' }
       );
       if (error) console.warn('savePortfolio error:', error.message);
@@ -579,8 +659,10 @@
       document.getElementById('authBtn').textContent = 'Admin';
       document.getElementById('authBtn').classList.add('signed-in');
       document.querySelector('.nav-links .back').classList.add('visible');
+      renderFilterBar();
       renderSections();
     }
+
     async function doSignOut() {
       await sb.auth.signOut();
       closeAuthModal();
@@ -593,7 +675,6 @@
     }
 
     async function init() {
-      // Check auth
       const result = await updateAuthNav();
       isAdmin = result.isAdmin;
       if (isAdmin) {
@@ -601,42 +682,35 @@
         document.getElementById('adminToolbar').classList.add('show');
       }
 
-      // Load portfolio items
-      const { data, error } = await sb.from('round_settings')
+      const { data } = await sb.from('round_settings')
         .select('prizes')
         .eq('round_id', '__portfolio__')
         .eq('tournament_id', 'portfolio')
         .maybeSingle();
 
       if (data?.prizes) {
-        try { portfolioItems = JSON.parse(data.prizes); } catch { portfolioItems = DEFAULT_ITEMS; }
+        try {
+          const raw = JSON.parse(data.prizes);
+          if (Array.isArray(raw)) {
+            // Migrate old flat-array format
+            portfolioData = {
+              clients: DEFAULT_CLIENTS,
+              items: raw.map(({ section, ...rest }) => ({ ...rest, clientId: section || rest.clientId })),
+            };
+            if (isAdmin) savePortfolio();
+          } else {
+            portfolioData = raw;
+          }
+        } catch {
+          portfolioData = { clients: DEFAULT_CLIENTS, items: DEFAULT_ITEMS };
+        }
       } else {
-        portfolioItems = DEFAULT_ITEMS;
+        portfolioData = { clients: DEFAULT_CLIENTS, items: DEFAULT_ITEMS };
         if (isAdmin) savePortfolio();
       }
 
+      renderFilterBar();
       renderSections();
-
-      // Cursor
-      const cursor = document.getElementById('cursor');
-      const ring = document.getElementById('cursorRing');
-      let mx = 0, my = 0, rx = 0, ry = 0;
-      document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
-      (function tick() {
-        rx += (mx - rx) * 0.12; ry += (my - ry) * 0.12;
-        cursor.style.left = mx + 'px'; cursor.style.top = my + 'px';
-        ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
-        requestAnimationFrame(tick);
-      })();
-
-      // Filter
-      document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          applyFilter(btn.dataset.filter);
-        });
-      });
 
       // Edit mode toggle
       document.getElementById('editModeToggle').addEventListener('click', () => {
@@ -646,11 +720,20 @@
         btn.classList.toggle('active', on);
       });
 
+      // Add client button
+      document.getElementById('addClientBtn').addEventListener('click', () => {
+        document.getElementById('addClientName').value = '';
+        document.getElementById('addClientSub').value = '';
+        document.getElementById('addClientGrid').value = 'video-grid-3';
+        document.getElementById('addClientStatus').textContent = '';
+        document.getElementById('addClientModal').classList.add('open');
+      });
+
       // Reveal static elements
       document.querySelectorAll('.reveal').forEach(el => revealObs.observe(el));
     }
 
-    // Edit modal wiring
+    // Edit video modal
     document.getElementById('editModalClose').addEventListener('click', () => document.getElementById('editModal').classList.remove('open'));
     document.getElementById('editCancelBtn').addEventListener('click', () => document.getElementById('editModal').classList.remove('open'));
     document.getElementById('editModal').addEventListener('click', e => { if (e.target === document.getElementById('editModal')) document.getElementById('editModal').classList.remove('open'); });
@@ -662,12 +745,10 @@
       const notes = document.getElementById('editNotes').value.trim();
       const statusEl = document.getElementById('editStatus');
       if (!rawUrl) { statusEl.textContent = 'Please enter a URL.'; return; }
-      const item = portfolioItems.find(i => i.id === id);
+      const item = portfolioData.items.find(i => i.id === id);
       if (!item) return;
-      let finalUrl = rawUrl;
       let type = detectType(rawUrl);
-      if (type === 'youtube') finalUrl = normalizeYouTubeUrl(rawUrl) || rawUrl;
-      item.url = finalUrl;
+      item.url = type === 'youtube' ? (normalizeYouTubeUrl(rawUrl) || rawUrl) : rawUrl;
       item.type = type;
       if (title) item.title = title;
       item.notes = notes;
@@ -678,36 +759,42 @@
       applyFilter(currentFilter);
     });
 
-    // Add modal wiring
+    // Add video modal
     document.getElementById('modalClose').addEventListener('click', () => document.getElementById('addModal').classList.remove('open'));
     document.getElementById('addCancelBtn').addEventListener('click', () => document.getElementById('addModal').classList.remove('open'));
     document.getElementById('addModal').addEventListener('click', e => { if (e.target === document.getElementById('addModal')) document.getElementById('addModal').classList.remove('open'); });
-
     document.getElementById('addConfirmBtn').addEventListener('click', async () => {
       const rawUrl = document.getElementById('addUrl').value.trim();
       const title = document.getElementById('addTitle').value.trim();
-      const sectionId = document.getElementById('addSection').value;
+      const clientId = document.getElementById('addSection').value;
       const statusEl = document.getElementById('addStatus');
-
       if (!rawUrl) { statusEl.textContent = 'Please enter a URL.'; return; }
-
-      let finalUrl = rawUrl;
       let type = detectType(rawUrl);
-      if (type === 'youtube') {
-        finalUrl = normalizeYouTubeUrl(rawUrl);
-      }
-
-      const newItem = {
-        id: 'v' + Date.now(),
-        section: sectionId,
-        type,
-        url: finalUrl,
-        title: title || 'Video',
-      };
-      portfolioItems.push(newItem);
+      const finalUrl = type === 'youtube' ? (normalizeYouTubeUrl(rawUrl) || rawUrl) : rawUrl;
+      portfolioData.items.push({ id: 'v' + Date.now(), clientId, type, url: finalUrl, title: title || 'Video' });
       statusEl.textContent = 'Saving…';
       await savePortfolio();
       document.getElementById('addModal').classList.remove('open');
+      renderSections();
+      applyFilter(currentFilter);
+    });
+
+    // Add client modal
+    document.getElementById('addClientModalClose').addEventListener('click', () => document.getElementById('addClientModal').classList.remove('open'));
+    document.getElementById('addClientCancelBtn').addEventListener('click', () => document.getElementById('addClientModal').classList.remove('open'));
+    document.getElementById('addClientModal').addEventListener('click', e => { if (e.target === document.getElementById('addClientModal')) document.getElementById('addClientModal').classList.remove('open'); });
+    document.getElementById('addClientConfirmBtn').addEventListener('click', async () => {
+      const name = document.getElementById('addClientName').value.trim();
+      const sub = document.getElementById('addClientSub').value.trim();
+      const grid = document.getElementById('addClientGrid').value;
+      const statusEl = document.getElementById('addClientStatus');
+      if (!name) { statusEl.textContent = 'Please enter a name.'; return; }
+      const { cardClass, embedClass } = gridCardEmbed(grid);
+      portfolioData.clients.push({ id: 'c' + Date.now(), name, sub, grid, cardClass, embedClass });
+      statusEl.textContent = 'Saving…';
+      await savePortfolio();
+      document.getElementById('addClientModal').classList.remove('open');
+      renderFilterBar();
       renderSections();
       applyFilter(currentFilter);
     });
