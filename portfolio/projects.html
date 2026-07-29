@@ -126,6 +126,30 @@
     }
     .admin-add-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+    /* SUBSECTION */
+    .subsection-header { display: flex; align-items: center; justify-content: space-between; margin: 40px 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; gap: 8px; }
+    .subsection-label { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+    .admin-delete-sub-btn { display: none; background: none; border: 1px solid rgba(217,79,61,0.3); color: rgba(217,79,61,0.55); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; padding: 3px 8px; cursor: pointer; transition: border-color .2s, color .2s; }
+    .admin-delete-sub-btn:hover { border-color: var(--red); color: var(--red); }
+    body.edit-mode .admin-delete-sub-btn { display: inline-block; }
+    .admin-add-sub-btn { background: none; border: 1px dashed rgba(232,213,163,0.2); color: var(--muted); padding: 10px 24px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; cursor: pointer; transition: color .25s, border-color .25s; margin-top: 8px; }
+    .admin-add-sub-btn:hover { color: var(--accent); border-color: rgba(232,213,163,0.5); }
+
+    /* TAG FILTER BAR */
+    .tag-bar { padding: 12px 48px 20px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); display: none; }
+    .tag-bar.has-tags { display: flex; }
+    .tag-chip { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid var(--line); padding: 5px 12px; cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
+    .tag-chip:hover { color: var(--accent); border-color: rgba(232,213,163,0.4); }
+    .tag-chip.active { background: rgba(232,213,163,0.12); color: var(--accent); border-color: rgba(232,213,163,0.5); }
+    .tag-chip-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); padding: 5px 0; pointer-events: none; opacity: .5; }
+
+    /* SECTION SORT BUTTONS */
+    .section-sort-btns { display: none; gap: 4px; }
+    body.edit-mode .section-sort-btns { display: flex; }
+    .section-sort-btn { background: none; border: 1px solid var(--line); color: var(--muted); width: 28px; height: 28px; cursor: pointer; font-size: 12px; transition: color .2s, border-color .2s; display: flex; align-items: center; justify-content: center; }
+    .section-sort-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .section-sort-btn:disabled { opacity: .2; cursor: default; }
+
     /* ADMIN DELETE CLIENT BTN */
     .admin-delete-client-btn { display: none; background: none; border: 1px solid rgba(217,79,61,0.35); color: rgba(217,79,61,0.6); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 5px 12px; cursor: pointer; transition: border-color 0.2s, color 0.2s; }
     .admin-delete-client-btn:hover { border-color: var(--red); color: var(--red); }
@@ -170,10 +194,20 @@
 
     /* STATS */
     .stats-bar { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
-    .stat-item { padding: 56px 48px; border-right: 1px solid var(--line); }
+    .stat-item { padding: 56px 48px; border-right: 1px solid var(--line); position: relative; }
     .stat-item:last-child { border-right: none; }
     .stat-num { font-family: 'Bebas Neue', sans-serif; font-size: clamp(52px, 6vw, 80px); line-height: 1; color: var(--accent); }
     .stat-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+    .stat-edit-btn { display: none; position: absolute; top: 14px; right: 14px; background: none; border: 1px solid var(--line); color: var(--muted); font-size: 13px; width: 28px; height: 28px; cursor: pointer; transition: color .2s, border-color .2s; }
+    .stat-edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+    body.edit-mode .stat-edit-btn { display: block; }
+    /* Stat inline editing */
+    .stat-edit-form { display: flex; flex-direction: column; gap: 8px; }
+    .stat-edit-input { background: var(--bg3); border: 1px solid var(--line); color: var(--text); padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; width: 100%; }
+    .stat-edit-input:focus { border-color: var(--accent); }
+    .stat-edit-input.big { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--accent); }
+    .stat-save-btn { background: var(--accent); color: var(--bg); border: none; padding: 6px 14px; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; cursor: pointer; align-self: flex-start; }
+    .stat-save-btn:hover { background: var(--accent2); }
 
     /* CTA */
     .cta-bar { padding: 80px 48px; text-align: center; border-top: 1px solid var(--line); }
@@ -238,14 +272,11 @@
   <div class="filter-bar" id="filterBar">
     <button class="filter-btn active" data-filter="all">All</button>
   </div>
+  <div class="tag-bar" id="tagBar"></div>
 
   <div id="sectionsContainer"></div>
 
-  <div class="stats-bar">
-    <div class="stat-item reveal"><div class="stat-num">3.9M+</div><p class="stat-label">Viewer Reach</p></div>
-    <div class="stat-item reveal"><div class="stat-num">9+</div><p class="stat-label">Clients Served</p></div>
-    <div class="stat-item reveal"><div class="stat-num">6+</div><p class="stat-label">Years Experience</p></div>
-  </div>
+  <div class="stats-bar" id="statsBar"></div>
 
   <div class="cta-bar reveal">
     <h2>Ready to Work Together?</h2>
@@ -286,11 +317,40 @@
         <label class="field-label" for="editNotes">Notes <span style="opacity:.5">(optional)</span></label>
         <textarea class="field-input" id="editNotes" rows="3" placeholder="e.g. Client: YYC Music Awards, 2023 event recap…" style="resize:vertical;line-height:1.6;"></textarea>
       </div>
+      <div class="field">
+        <label class="field-label" for="editSection">Move to Section</label>
+        <select class="field-select" id="editSection"></select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="editSubsection">Subsection <span style="opacity:.5">(optional)</span></label>
+        <select class="field-select" id="editSubsection"></select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="editTags">Tags <span style="opacity:.5">(comma-separated, optional)</span></label>
+        <input class="field-input" type="text" id="editTags" placeholder="e.g. featured, 2024, promo" />
+      </div>
       <div class="modal-actions">
         <button class="btn-accent" id="editConfirmBtn">Save</button>
         <button class="btn-outline" id="editCancelBtn">Cancel</button>
       </div>
       <p class="modal-status" id="editStatus"></p>
+    </div>
+  </div>
+
+  <!-- ADD SUBSECTION MODAL -->
+  <div class="modal-overlay" id="addSubModal">
+    <div class="modal" style="max-width:360px">
+      <button class="modal-close" id="addSubModalClose">✕</button>
+      <div class="modal-title">Add Subsection</div>
+      <div class="field">
+        <label class="field-label" for="addSubName">Label</label>
+        <input class="field-input" type="text" id="addSubName" placeholder="e.g. 2024 Work" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-accent" id="addSubConfirmBtn">Add</button>
+        <button class="btn-outline" id="addSubCancelBtn">Cancel</button>
+      </div>
+      <p class="modal-status" id="addSubStatus"></p>
     </div>
   </div>
 
@@ -342,6 +402,14 @@
         <label class="field-label" for="addTitle">Title <span style="opacity:.5">(optional)</span></label>
         <input class="field-input" type="text" id="addTitle" placeholder="e.g. Promo Reel 2024" />
       </div>
+      <div class="field">
+        <label class="field-label" for="addSubsection">Subsection <span style="opacity:.5">(optional)</span></label>
+        <select class="field-select" id="addSubsection"></select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="addTags">Tags <span style="opacity:.5">(comma-separated, optional)</span></label>
+        <input class="field-input" type="text" id="addTags" placeholder="e.g. featured, 2024, promo" />
+      </div>
       <div class="modal-actions">
         <button class="btn-accent" id="addConfirmBtn">Add Video</button>
         <button class="btn-outline" id="addCancelBtn">Cancel</button>
@@ -355,6 +423,12 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrb25wbGt2bHNjY2pqbWlld2R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODM3MDUsImV4cCI6MjA5NTY1OTcwNX0.Fe7YCAUAndZd6EVFqHBiFyQrQx4mar0B4FD8E3D_G7U';
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+
+    const DEFAULT_STATS = [
+      { num: '3.9M+', label: 'Viewer Reach' },
+      { num: '9+',    label: 'Clients Served' },
+      { num: '6+',    label: 'Years Experience' },
+    ];
 
     // Seed data (used on first load or migration)
     const LEGACY_SECTIONS = [
@@ -439,17 +513,112 @@
       return `<div class="${embedClass}">${inner}</div>`;
     }
 
+    function renderStats() {
+      const stats = portfolioData.stats || DEFAULT_STATS;
+      const bar = document.getElementById('statsBar');
+      bar.innerHTML = stats.map((s, i) => `
+        <div class="stat-item reveal">
+          <div class="stat-num" id="stat-num-${i}">${s.num}</div>
+          <p class="stat-label" id="stat-lbl-${i}">${s.label}</p>
+          <button class="stat-edit-btn" data-stat="${i}" title="Edit stat">✎</button>
+        </div>
+      `).join('');
+      document.querySelectorAll('.stat-edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = parseInt(btn.dataset.stat);
+          const s = (portfolioData.stats || DEFAULT_STATS)[i];
+          const item = btn.closest('.stat-item');
+          if (item.querySelector('.stat-edit-form')) return; // already open
+          item.querySelector('.stat-num').style.display = 'none';
+          item.querySelector('.stat-label').style.display = 'none';
+          btn.style.display = 'none';
+          const form = document.createElement('div');
+          form.className = 'stat-edit-form';
+          form.innerHTML = `
+            <input class="stat-edit-input big" id="sedit-num-${i}" value="${s.num}" placeholder="e.g. 3.9M+" />
+            <input class="stat-edit-input" id="sedit-lbl-${i}" value="${s.label}" placeholder="e.g. Viewer Reach" />
+            <button class="stat-save-btn" data-save="${i}">Save</button>
+          `;
+          item.appendChild(form);
+          form.querySelector(`#sedit-num-${i}`).focus();
+          form.querySelector(`[data-save]`).addEventListener('click', async () => {
+            const num = form.querySelector(`#sedit-num-${i}`).value.trim();
+            const lbl = form.querySelector(`#sedit-lbl-${i}`).value.trim();
+            if (!num) return;
+            if (!portfolioData.stats) portfolioData.stats = [...DEFAULT_STATS];
+            portfolioData.stats[i] = { num, label: lbl };
+            await savePortfolio();
+            renderStats();
+            document.querySelectorAll('.stats-bar .reveal').forEach(el => revealObs.observe(el));
+          });
+        });
+      });
+      document.querySelectorAll('.stats-bar .reveal').forEach(el => revealObs.observe(el));
+    }
+
+    let currentFilter = 'all';
+    let currentTag = null;
+
     function renderFilterBar() {
       const bar = document.getElementById('filterBar');
-      bar.innerHTML = '<button class="filter-btn active" data-filter="all">All</button>' +
+      bar.innerHTML = '<button class="filter-btn" data-filter="all">All</button>' +
         portfolioData.clients.map(c => `<button class="filter-btn" data-filter="${c.id}">${c.name}</button>`).join('');
       bar.querySelectorAll('.filter-btn').forEach(btn => {
+        if (btn.dataset.filter === currentFilter) btn.classList.add('active');
         btn.addEventListener('click', () => {
           bar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
+          currentTag = null;
           applyFilter(btn.dataset.filter);
+          renderTagBar();
         });
       });
+    }
+
+    function renderTagBar() {
+      const bar = document.getElementById('tagBar');
+      const visibleItems = currentFilter === 'all'
+        ? portfolioData.items
+        : portfolioData.items.filter(i => i.clientId === currentFilter);
+      const allTags = new Set();
+      visibleItems.forEach(item => (item.tags || []).forEach(t => { if (t.trim()) allTags.add(t.trim()); }));
+      if (!allTags.size) { bar.classList.remove('has-tags'); bar.innerHTML = ''; return; }
+      bar.classList.add('has-tags');
+      bar.innerHTML = '<span class="tag-chip-label">Tags:</span>' +
+        [...allTags].sort().map(t => `<button class="tag-chip${t === currentTag ? ' active' : ''}" data-tag="${t}">${t}</button>`).join('');
+      bar.querySelectorAll('.tag-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          currentTag = currentTag === chip.dataset.tag ? null : chip.dataset.tag;
+          renderTagBar();
+          applyFilter(currentFilter);
+        });
+      });
+    }
+
+    function makeCardHtml(item, cc, ec) {
+      return `
+        <div class="${cc}" data-item-id="${item.id}">
+          ${buildEmbedHtml(item, { embedClass: ec, grid: ec === 'logo-embed' ? 'logo-grid' : '' })}
+          <div class="video-overlay"><div class="video-overlay-icon"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div></div>
+          <button class="admin-edit-btn" data-edit-id="${item.id}" title="Edit video">✎</button>
+          <button class="admin-delete-btn" data-delete-id="${item.id}" title="Remove video">×</button>
+        </div>`;
+    }
+
+    function updateEditSubsectionDropdown(clientId, selectedSubId) {
+      const client = portfolioData.clients.find(c => c.id === clientId);
+      const subs = client?.subsections || [];
+      document.getElementById('editSubsection').innerHTML =
+        `<option value="">— None —</option>` +
+        subs.map(s => `<option value="${s.id}"${s.id === selectedSubId ? ' selected' : ''}>${s.name}</option>`).join('');
+    }
+
+    function updateAddSubsectionDropdown(clientId) {
+      const client = portfolioData.clients.find(c => c.id === clientId);
+      const subs = client?.subsections || [];
+      document.getElementById('addSubsection').innerHTML =
+        `<option value="">— None —</option>` +
+        subs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
     }
 
     function renderSections() {
@@ -457,7 +626,9 @@
       container.innerHTML = '';
 
       portfolioData.clients.forEach(client => {
-        const items = portfolioData.items.filter(i => i.clientId === client.id);
+        const allItems = portfolioData.items.filter(i => i.clientId === client.id);
+        const subs = client.subsections || [];
+        const subIds = new Set(subs.map(s => s.id));
         const nameLines = client.name.split('\n');
         const headingHtml = nameLines.length > 1 ? `${nameLines[0]}<br>${nameLines[1]}` : nameLines[0];
         const { cardClass, embedClass } = gridCardEmbed(client.grid);
@@ -465,14 +636,23 @@
         const ec = client.embedClass || embedClass;
         const gridClass = client.grid || 'video-grid-3';
 
-        const cardsHtml = items.map(item => `
-          <div class="${cc}" data-item-id="${item.id}">
-            ${buildEmbedHtml(item, { ...client, embedClass: ec })}
-            <div class="video-overlay"><div class="video-overlay-icon"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg></div></div>
-            <button class="admin-edit-btn" data-edit-id="${item.id}" title="Edit video">✎</button>
-            <button class="admin-delete-btn" data-delete-id="${item.id}" title="Remove video">×</button>
-          </div>
-        `).join('');
+        const idx = portfolioData.clients.indexOf(client);
+        const total = portfolioData.clients.length;
+
+        // Ungrouped (no subsection or unknown subsection)
+        const ungrouped = allItems.filter(i => !i.subsectionId || !subIds.has(i.subsectionId));
+        let innerHtml = `<div class="${gridClass}">${ungrouped.map(i => makeCardHtml(i, cc, ec)).join('')}</div>`;
+
+        // Subsections
+        subs.forEach(sub => {
+          const subItems = allItems.filter(i => i.subsectionId === sub.id);
+          innerHtml += `
+            <div class="subsection-header">
+              <span class="subsection-label">${sub.name}</span>
+              <button class="admin-delete-sub-btn" data-delete-sub="${sub.id}" data-client="${client.id}">✕ Remove</button>
+            </div>
+            <div class="${gridClass}">${subItems.map(i => makeCardHtml(i, cc, ec)).join('')}</div>`;
+        });
 
         const section = document.createElement('section');
         section.className = 'project-section reveal';
@@ -483,17 +663,44 @@
               <h2 class="section-heading">${headingHtml}</h2>
               <p class="section-sub">${client.sub || ''}</p>
             </div>
-            <button class="admin-delete-client-btn" data-delete-client="${client.id}" title="Delete client">✕ Delete Client</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <div class="section-sort-btns">
+                <button class="section-sort-btn" data-move-up="${client.id}" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                <button class="section-sort-btn" data-move-down="${client.id}" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
+              </div>
+              <button class="admin-delete-client-btn" data-delete-client="${client.id}">✕ Delete Client</button>
+            </div>
           </div>
-          <div class="${gridClass}">${cardsHtml}</div>
-          <div class="admin-add-row">
-            <button class="admin-add-btn" data-add-section="${client.id}">＋ Add Video to ${client.name}</button>
+          ${innerHtml}
+          <div class="admin-add-row" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="admin-add-btn" data-add-section="${client.id}" style="flex:1">＋ Add Video to ${client.name}</button>
+            <button class="admin-add-sub-btn" data-add-sub="${client.id}">＋ Add Subsection</button>
           </div>
         `;
         container.appendChild(section);
       });
 
-      // Delete client buttons
+      // Sort buttons (preserve active filter tab)
+      document.querySelectorAll('[data-move-up]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const i = portfolioData.clients.findIndex(c => c.id === btn.dataset.moveUp);
+          if (i <= 0) return;
+          [portfolioData.clients[i - 1], portfolioData.clients[i]] = [portfolioData.clients[i], portfolioData.clients[i - 1]];
+          savePortfolio(); renderFilterBar(); renderSections(); applyFilter(currentFilter);
+        });
+      });
+      document.querySelectorAll('[data-move-down]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const i = portfolioData.clients.findIndex(c => c.id === btn.dataset.moveDown);
+          if (i < 0 || i >= portfolioData.clients.length - 1) return;
+          [portfolioData.clients[i], portfolioData.clients[i + 1]] = [portfolioData.clients[i + 1], portfolioData.clients[i]];
+          savePortfolio(); renderFilterBar(); renderSections(); applyFilter(currentFilter);
+        });
+      });
+
+      // Delete client
       document.querySelectorAll('[data-delete-client]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
@@ -503,14 +710,37 @@
           if (!confirm(`Delete "${client?.name}"? This will also remove ${count} video${count !== 1 ? 's' : ''}.`)) return;
           portfolioData.clients = portfolioData.clients.filter(c => c.id !== id);
           portfolioData.items = portfolioData.items.filter(i => i.clientId !== id);
-          savePortfolio();
-          renderFilterBar();
-          renderSections();
-          applyFilter('all');
+          savePortfolio(); renderFilterBar(); renderSections(); renderTagBar(); applyFilter('all');
         });
       });
 
-      // Edit buttons
+      // Delete subsection
+      document.querySelectorAll('[data-delete-sub]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const subId = btn.dataset.deleteSub;
+          const clientId = btn.dataset.client;
+          const client = portfolioData.clients.find(c => c.id === clientId);
+          const sub = (client?.subsections || []).find(s => s.id === subId);
+          const count = portfolioData.items.filter(i => i.subsectionId === subId).length;
+          if (!confirm(`Remove subsection "${sub?.name}"? Its ${count} video${count !== 1 ? 's' : ''} will move back to the main section.`)) return;
+          client.subsections = (client.subsections || []).filter(s => s.id !== subId);
+          portfolioData.items.forEach(i => { if (i.subsectionId === subId) delete i.subsectionId; });
+          savePortfolio(); renderSections(); applyFilter(currentFilter);
+        });
+      });
+
+      // Add subsection
+      document.querySelectorAll('[data-add-sub]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.getElementById('addSubModal')._clientId = btn.dataset.addSub;
+          document.getElementById('addSubName').value = '';
+          document.getElementById('addSubStatus').textContent = '';
+          document.getElementById('addSubModal').classList.add('open');
+        });
+      });
+
+      // Edit video
       document.querySelectorAll('[data-edit-id]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
@@ -519,50 +749,51 @@
           document.getElementById('editUrl').value = item.url || '';
           document.getElementById('editTitle').value = item.title || '';
           document.getElementById('editNotes').value = item.notes || '';
+          document.getElementById('editTags').value = (item.tags || []).join(', ');
           document.getElementById('editStatus').textContent = '';
+          const secSel = document.getElementById('editSection');
+          secSel.innerHTML = portfolioData.clients.map(c => `<option value="${c.id}"${c.id === item.clientId ? ' selected' : ''}>${c.name}</option>`).join('');
+          updateEditSubsectionDropdown(item.clientId, item.subsectionId || '');
+          secSel.onchange = function() { updateEditSubsectionDropdown(this.value, ''); };
           document.getElementById('editModal')._editId = item.id;
           document.getElementById('editModal').classList.add('open');
         });
       });
 
-      // Delete video buttons
+      // Delete video
       document.querySelectorAll('[data-delete-id]').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
-          const id = btn.dataset.deleteId;
           if (!confirm('Remove this video?')) return;
-          portfolioData.items = portfolioData.items.filter(i => i.id !== id);
-          savePortfolio();
-          renderSections();
-          applyFilter(currentFilter);
+          portfolioData.items = portfolioData.items.filter(i => i.id !== btn.dataset.deleteId);
+          savePortfolio(); renderSections(); renderTagBar(); applyFilter(currentFilter);
         });
       });
 
-      // Add video buttons
+      // Add video
       document.querySelectorAll('[data-add-section]').forEach(btn => {
         btn.addEventListener('click', () => {
           const clientId = btn.dataset.addSection;
           const sel = document.getElementById('addSection');
           sel.innerHTML = portfolioData.clients.map(c => `<option value="${c.id}"${c.id === clientId ? ' selected' : ''}>${c.name}</option>`).join('');
+          sel.onchange = function() { updateAddSubsectionDropdown(this.value); };
+          updateAddSubsectionDropdown(clientId);
           document.getElementById('addUrl').value = '';
           document.getElementById('addTitle').value = '';
+          document.getElementById('addTags').value = '';
           document.getElementById('addStatus').textContent = '';
           document.getElementById('addModal').classList.add('open');
         });
       });
 
-      // Gold play button → actually play the video for non-YouTube cards
+      // Gold play button for video/gif cards
       document.querySelectorAll('.video-card, .short-card, .logo-card').forEach(card => {
         const video = card.querySelector('video');
         if (!video) return;
         const overlay = card.querySelector('.video-overlay');
         if (!overlay) return;
         overlay.style.pointerEvents = 'auto';
-        overlay.addEventListener('click', () => {
-          if (video.paused) video.play();
-          else video.pause();
-        });
-        // Hide overlay while playing so native controls are accessible
+        overlay.addEventListener('click', () => { if (video.paused) video.play(); else video.pause(); });
         video.addEventListener('play',  () => overlay.style.opacity = '0');
         video.addEventListener('pause', () => overlay.style.opacity = '');
         video.addEventListener('ended', () => overlay.style.opacity = '');
@@ -572,17 +803,19 @@
       applyFilter(currentFilter);
     }
 
-    let currentFilter = 'all';
     function applyFilter(f) {
       currentFilter = f;
       document.querySelectorAll('.project-section[data-category]').forEach(sec => {
-        if (f === 'all' || sec.dataset.category === f) {
-          sec.classList.remove('hidden');
-          sec.classList.add('visible');
-          sec.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
-        } else {
-          sec.classList.add('hidden');
-        }
+        const matchesClient = f === 'all' || sec.dataset.category === f;
+        if (!matchesClient) { sec.classList.add('hidden'); return; }
+        sec.classList.remove('hidden');
+        sec.classList.add('visible');
+        sec.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
+        sec.querySelectorAll('[data-item-id]').forEach(card => {
+          if (!currentTag) { card.style.display = ''; return; }
+          const item = portfolioData.items.find(i => i.id === card.dataset.itemId);
+          card.style.display = (item?.tags || []).map(t => t.trim()).includes(currentTag) ? '' : 'none';
+        });
       });
     }
 
@@ -661,6 +894,7 @@
       document.querySelector('.nav-links .back').classList.add('visible');
       renderFilterBar();
       renderSections();
+      renderStats();
     }
 
     async function doSignOut() {
@@ -672,6 +906,7 @@
       document.getElementById('adminToolbar').classList.remove('show');
       updateAuthNav();
       renderSections();
+      renderStats();
     }
 
     async function init() {
@@ -711,6 +946,7 @@
 
       renderFilterBar();
       renderSections();
+      renderStats();
 
       // Edit mode toggle
       document.getElementById('editModeToggle').addEventListener('click', () => {
@@ -752,6 +988,11 @@
       item.type = type;
       if (title) item.title = title;
       item.notes = notes;
+      item.clientId = document.getElementById('editSection').value;
+      const subVal = document.getElementById('editSubsection').value;
+      if (subVal) item.subsectionId = subVal; else delete item.subsectionId;
+      const tagsRaw = document.getElementById('editTags').value;
+      item.tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
       statusEl.textContent = 'Saving…';
       await savePortfolio();
       modal.classList.remove('open');
@@ -771,7 +1012,12 @@
       if (!rawUrl) { statusEl.textContent = 'Please enter a URL.'; return; }
       let type = detectType(rawUrl);
       const finalUrl = type === 'youtube' ? (normalizeYouTubeUrl(rawUrl) || rawUrl) : rawUrl;
-      portfolioData.items.push({ id: 'v' + Date.now(), clientId, type, url: finalUrl, title: title || 'Video' });
+      const subSel = document.getElementById('addSubsection').value;
+      const tagsRaw2 = document.getElementById('addTags').value;
+      const newItem = { id: 'v' + Date.now(), clientId, type, url: finalUrl, title: title || 'Video',
+        tags: tagsRaw2 ? tagsRaw2.split(',').map(t => t.trim()).filter(Boolean) : [] };
+      if (subSel) newItem.subsectionId = subSel;
+      portfolioData.items.push(newItem);
       statusEl.textContent = 'Saving…';
       await savePortfolio();
       document.getElementById('addModal').classList.remove('open');
@@ -795,6 +1041,26 @@
       await savePortfolio();
       document.getElementById('addClientModal').classList.remove('open');
       renderFilterBar();
+      renderSections();
+      applyFilter(currentFilter);
+    });
+
+    // Add subsection modal
+    document.getElementById('addSubModalClose').addEventListener('click', () => document.getElementById('addSubModal').classList.remove('open'));
+    document.getElementById('addSubCancelBtn').addEventListener('click', () => document.getElementById('addSubModal').classList.remove('open'));
+    document.getElementById('addSubModal').addEventListener('click', e => { if (e.target === document.getElementById('addSubModal')) document.getElementById('addSubModal').classList.remove('open'); });
+    document.getElementById('addSubConfirmBtn').addEventListener('click', async () => {
+      const name = document.getElementById('addSubName').value.trim();
+      const statusEl = document.getElementById('addSubStatus');
+      if (!name) { statusEl.textContent = 'Please enter a label.'; return; }
+      const clientId = document.getElementById('addSubModal')._clientId;
+      const client = portfolioData.clients.find(c => c.id === clientId);
+      if (!client) return;
+      if (!client.subsections) client.subsections = [];
+      client.subsections.push({ id: 'sub' + Date.now(), name });
+      statusEl.textContent = 'Saving…';
+      await savePortfolio();
+      document.getElementById('addSubModal').classList.remove('open');
       renderSections();
       applyFilter(currentFilter);
     });
